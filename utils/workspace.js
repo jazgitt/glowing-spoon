@@ -1,0 +1,132 @@
+import fs from 'fs/promises';
+import path from 'path';
+import * as out from './output.js';
+
+const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT || './workspaces';
+
+export function getWorkspacePath(tenantId, projectId) {
+  return path.join(WORKSPACE_ROOT, tenantId, projectId);
+}
+
+const VAULT_TOKEN_LIMITS = {
+  'guardrails.md':   2_000,
+  'patterns.md':     3_000,
+  'architecture.md': 4_000,
+  'stack.md':        1_000,
+  'decisions.md':    2_000,
+};
+
+// Maps vault need key → file name
+const VAULT_FILE_MAP = {
+  guardrails:   'guardrails.md',
+  patterns:     'patterns.md',
+  architecture: 'architecture.md',
+  stack:        'stack.md',
+  decisions:    'decisions.md',
+};
+
+// Maps spec need key → folder-relative glob
+const SPEC_FILE_MAP = {
+  stories:      'stories.md',
+  requirements: 'requirements.md',
+};
+
+export async function validateWorkspace(tenantId, projectId) {
+  const base = getWorkspacePath(tenantId, projectId);
+  try {
+    await fs.access(base);
+  } catch {
+    throw new Error(`Workspace not found: ${base}. Run: glowing-spoon workspace init --project ${projectId}`);
+  }
+
+  // Warn on vault files that exceed token limits
+  for (const [filename, limitTokens] of Object.entries(VAULT_TOKEN_LIMITS)) {
+    const filePath = path.join(base, 'context-vault', filename);
+    try {
+      const content = await fs.readFile(filePath, 'utf8');
+      const tokens = Math.ceil(content.length / 4);
+      if (tokens > limitTokens) {
+        const costPerSession = ((tokens - limitTokens) / 1_000_000 * 3.00).toFixed(4);
+        out.warn(`${filename} is ${tokens.toLocaleString()} tokens — limit is ${limitTokens.toLocaleString()}. Extra $${costPerSession}/session.`);
+      }
+    } catch {
+      // File missing — not an error at validation time
+    }
+  }
+
+  return true;
+}
+
+export async function loadSelectiveVault(tenantId, projectId, needs = []) {
+  const base = path.join(getWorkspacePath(tenantId, projectId), 'context-vault');
+
+  // Always inject guardrails + patterns
+  const alwaysInject = ['guardrails', 'patterns'];
+  const allNeeds = [...new Set([...alwaysInject, ...needs])];
+
+  const sections = [];
+  for (const need of allNeeds) {
+    const filename = VAULT_FILE_MAP[need] ?? need;
+    const filePath = path.join(base, filename);
+    try {
+      const content = await fs.readFile(filePath, 'utf8');
+      if (content.trim()) {
+        sections.push(`## ${filename}\n\n${content.trim()}`);
+      }
+    } catch {
+      // Vault file doesn't exist yet — skip silently
+    }
+  }
+
+  return sections.join('\n\n---\n\n');
+}
+
+export async function loadSpecs(tenantId, projectId) {
+  const specsDir = path.join(getWorkspacePath(tenantId, projectId), 'specs');
+  const sections = [];
+  try {
+    const files = await fs.readdir(specsDir);
+    for (const file of files.filter(f => f.endsWith('.md'))) {
+      const content = await fs.readFile(path.join(specsDir, file), 'utf8');
+      if (content.trim()) {
+        sections.push(`## ${file}\n\n${content.trim()}`);
+      }
+    }
+  } catch {
+    // specs dir missing — return empty
+  }
+  return sections.join('\n\n---\n\n');
+}
+
+export async function loadProductMd(tenantId, projectId) {
+  const filePath = path.join(getWorkspacePath(tenantId, projectId), 'PRODUCT.md');
+  try {
+    return await fs.readFile(filePath, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+export async function snapshotSkillVersions(agentsDir) {
+  const snapshot = {};
+  try {
+    const agents = await fs.readdir(agentsDir);
+    for (const agent of agents) {
+      const skillsDir = path.join(agentsDir, agent, 'skills');
+      try {
+        const skills = await fs.readdir(skillsDir);
+        for (const skill of skills.filter(s => s.endsWith('.md'))) {
+          const content = await fs.readFile(path.join(skillsDir, skill), 'utf8');
+          const versionMatch = content.match(/^version:\s*(.+)$/m);
+          const version = versionMatch ? versionMatch[1].trim() : '1.0';
+          snapshot[`${agent}/${skill}`] = version;
+        }
+      } catch {
+        // No skills dir
+      }
+    }
+  } catch {
+    // No agents dir
+  }
+  return snapshot;
+}

@@ -1,0 +1,41 @@
+export const ErrorTypes = {
+  SYNTAX_ERROR: {
+    code: 'SYNTAX_ERROR',
+    recovery: 'retry-dev-agent-with-error-location',
+    maxRetries: 2,
+    notifyPM: false,
+  },
+  QUALITY_GATE_FAIL: {
+    code: 'QUALITY_GATE_FAIL',
+    recovery: 'retry-agent-with-review-feedback',
+    maxRetries: 2,
+    notifyPM: false,
+  },
+  QUALITY_GATE_PERMANENT: {
+    code: 'QUALITY_GATE_PERMANENT',
+    recovery: 'escalate-to-pm',
+    maxRetries: 0,
+    notifyPM: true,
+    attention: 'BLOCKING',
+  },
+  AMBIGUITY_UNRESOLVABLE: {
+    code: 'AMBIGUITY_UNRESOLVABLE',
+    recovery: 'pause-and-ask-pm',
+    maxRetries: 0,
+    notifyPM: true,
+    attention: 'BLOCKING',
+  },
+  TOKEN_BUDGET_EXCEEDED: {
+    code: 'TOKEN_BUDGET_EXCEEDED',
+    recovery: 'split-task-and-retry',
+    maxRetries: 1,
+    notifyPM: true,
+    attention: 'WARNING',
+  },
+  API_ERROR: {
+    code: 'API_ERROR',
+    recovery: 'exponential-backoff-retry',
+    maxRetries: 3,
+    notifyPM: false,
+  },
+};

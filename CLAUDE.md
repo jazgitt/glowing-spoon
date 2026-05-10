@@ -4,7 +4,7 @@ Read this entire file before writing a single line of code. Then read any refere
 
 ---
 
-## What This Is
+## What is This
 
 Multi-tenant SaaS platform that runs AI-native engineering teams. No human developers. Agents do all work using skills. Multiple PMs run independent projects simultaneously — their data never touches.
 
