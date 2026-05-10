@@ -1,0 +1,1467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Glowing Spoon</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ─── Reset ───────────────────────────────────────────────── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',ui-sans-serif,sans-serif;font-size:14px;
+  color:#0D0D0D;background:#fff;overflow-x:hidden;line-height:1.6}
+
+/* ─── Top Nav ─────────────────────────────────────────────── */
+.nav{
+  position:fixed;top:0;left:0;right:0;height:56px;
+  background:#fff;border-bottom:1px solid #E3E3E0;
+  display:flex;align-items:center;z-index:200;
+  padding:0 24px;gap:0;
+}
+.nav-brand{
+  font-size:15px;font-weight:600;color:#0D0D0D;
+  white-space:nowrap;margin-right:28px;cursor:default;
+}
+.nav-divider{width:1px;height:22px;background:#E3E3E0;margin-right:4px}
+.nav-phases{display:flex;height:56px}
+.phase-tab{
+  display:flex;align-items:center;padding:0 18px;
+  font-size:13px;font-weight:500;color:#6B6B6B;
+  cursor:pointer;border-bottom:2px solid transparent;
+  white-space:nowrap;user-select:none;
+}
+.phase-tab:hover{color:#0D0D0D}
+.phase-tab.active{color:#0D0D0D;font-weight:600;border-bottom-color:#000}
+
+.nav-right{
+  margin-left:auto;display:flex;align-items:center;gap:14px;
+}
+
+/* workspace switcher */
+.ws-wrap{position:relative}
+.ws-wrap select{
+  font-family:inherit;font-size:13px;font-weight:500;
+  color:#0D0D0D;background:#F7F7F5;
+  border:1px solid #E3E3E0;border-radius:0;
+  padding:6px 26px 6px 10px;outline:none;cursor:pointer;
+  appearance:none;-webkit-appearance:none;
+}
+.ws-wrap::after{
+  content:'▾';position:absolute;right:9px;top:50%;
+  transform:translateY(-50%);font-size:11px;
+  pointer-events:none;color:#6B6B6B;
+}
+
+/* session status pill */
+.status-pill{
+  font-size:12px;font-weight:600;padding:5px 12px;
+  border:1px solid;white-space:nowrap;
+}
+.sp-idle{color:#ADADAD;border-color:#E3E3E0;background:#F7F7F5}
+.sp-running{color:#2563EB;border-color:#BFDBFE;background:#EFF6FF}
+.sp-attention{color:#C0392B;border-color:#FECACA;background:#FEF2F2}
+.sp-complete{color:#1A6B3C;border-color:#BBF7D0;background:#F0FDF4}
+@keyframes pulse-border{0%,100%{opacity:1}50%{opacity:.5}}
+.sp-attention{animation:pulse-border 1.8s ease-in-out infinite}
+
+/* mini budget bar */
+.budget-nav{
+  display:flex;flex-direction:column;justify-content:center;
+  gap:4px;min-width:120px;
+}
+.bn-label{
+  display:flex;justify-content:space-between;
+  font-size:11px;font-weight:500;color:#6B6B6B;
+}
+.bn-label span:last-child{font-weight:600;color:#0D0D0D}
+.bn-track{background:#E3E3E0;height:4px;width:100%}
+.bn-fill{height:4px;background:#0D0D0D}
+.bn-fill.warn{background:#B45309}
+.bn-fill.danger{background:#C0392B}
+
+/* ─── Sidebar ─────────────────────────────────────────────── */
+.sidebar{
+  position:fixed;top:56px;left:0;
+  width:220px;height:calc(100vh - 96px);
+  background:#F7F7F5;border-right:1px solid #E3E3E0;
+  display:flex;flex-direction:column;overflow-y:auto;z-index:100;
+}
+.sb-group{font-size:11px;font-weight:600;color:#ADADAD;
+  text-transform:uppercase;letter-spacing:.07em;padding:14px 16px 4px}
+.sb-link{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 16px;font-size:13px;font-weight:400;color:#0D0D0D;
+  cursor:pointer;user-select:none;
+}
+.sb-link:hover{background:#ECECEA}
+.sb-link.active{
+  font-weight:600;background:#ECECEA;
+  border-left:3px solid #000;padding-left:13px;
+}
+.sb-badge{
+  background:#C0392B;color:#fff;font-size:11px;font-weight:700;
+  min-width:18px;height:18px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;padding:0 4px;
+}
+.sb-foot{
+  margin-top:auto;padding:16px;border-top:1px solid #E3E3E0;
+}
+.launch-cta{
+  display:block;width:100%;padding:12px;
+  background:#000;color:#fff;border:none;border-radius:0;
+  font-family:inherit;font-size:14px;font-weight:600;
+  cursor:pointer;text-align:center;
+}
+.launch-cta:hover{background:#222}
+
+/* ─── Main ────────────────────────────────────────────────── */
+.main{
+  margin-left:220px;margin-top:56px;margin-bottom:40px;
+  padding:32px;min-height:calc(100vh - 96px);
+}
+
+/* ─── Footer ──────────────────────────────────────────────── */
+footer{
+  position:fixed;bottom:0;left:0;right:0;height:40px;
+  background:#F7F7F5;border-top:1px solid #E3E3E0;
+  font-size:12px;color:#ADADAD;
+  display:flex;align-items:center;justify-content:center;gap:10px;
+}
+
+/* ─── Views ───────────────────────────────────────────────── */
+.view{display:none}
+.view.on{display:block}
+
+/* ─── Page header ─────────────────────────────────────────── */
+.ph{margin-bottom:28px;padding-bottom:20px;border-bottom:1px solid #E3E3E0}
+.pt{font-size:22px;font-weight:600;letter-spacing:-.01em;margin-bottom:4px}
+.ps{font-size:13px;color:#6B6B6B}
+
+/* ─── Buttons ─────────────────────────────────────────────── */
+.btn{
+  display:inline-flex;align-items:center;gap:6px;
+  font-family:inherit;font-size:14px;font-weight:500;
+  padding:10px 20px;border-radius:0;border:none;
+  cursor:pointer;white-space:nowrap;line-height:1;text-decoration:none;
+}
+.btn-black{background:#000;color:#fff}
+.btn-black:hover{background:#222}
+.btn-outline{background:#fff;color:#0D0D0D;border:1px solid #0D0D0D}
+.btn-outline:hover{background:#F7F7F5}
+.btn-red{background:#C0392B;color:#fff}
+.btn-red:hover{background:#A93226}
+.btn-ghost{background:transparent;color:#6B6B6B;font-size:13px;font-weight:400;padding:6px 12px}
+.btn-ghost:hover{color:#0D0D0D}
+.btn-sm{padding:7px 14px;font-size:13px}
+.btn-wide{width:100%;justify-content:center;padding:13px}
+
+/* ─── Forms ───────────────────────────────────────────────── */
+.field{margin-bottom:18px}
+label{display:block;font-size:12px;font-weight:500;color:#0D0D0D;margin-bottom:6px}
+input[type=text],input[type=number],textarea{
+  width:100%;font-family:inherit;font-size:14px;color:#0D0D0D;
+  background:#fff;border:1px solid #E3E3E0;border-radius:0;
+  padding:9px 12px;outline:none;resize:vertical;
+}
+input[type=text]:focus,textarea:focus,input[type=number]:focus{border-color:#0D0D0D}
+input.ro{background:#F7F7F5;color:#6B6B6B}
+.hint{font-size:12px;color:#6B6B6B;margin-top:4px}
+.over-hint{font-size:12px;color:#C0392B;margin-top:4px;font-weight:500}
+
+/* ─── Cards ───────────────────────────────────────────────── */
+.card{background:#fff;border:1px solid #E3E3E0;padding:20px 24px;margin-bottom:16px}
+.card-title{
+  font-size:11px;font-weight:600;color:#6B6B6B;
+  text-transform:uppercase;letter-spacing:.06em;
+  padding-bottom:12px;border-bottom:1px solid #E3E3E0;margin-bottom:16px;
+}
+
+/* ─── Status dot ──────────────────────────────────────────── */
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.d-idle{background:#ADADAD}
+.d-run{background:#2563EB}
+.d-done{background:#0D0D0D}
+.d-pass{background:#1A6B3C}
+.d-fail{background:#C0392B}
+.d-retry{background:#B45309}
+
+/* ─── Pipeline strip ──────────────────────────────────────── */
+.pipeline{display:flex;margin-bottom:20px}
+.pipe{
+  flex:1;padding:12px 14px;border:1px solid #E3E3E0;
+  background:#fff;min-width:0;
+}
+.pipe+.pipe{border-left:none}
+.pipe.done{background:#F0FAF4;border-color:#1A6B3C}
+.pipe.running{background:#EFF6FF;border-color:#2563EB}
+.pipe.fail{background:#FEF2F2;border-color:#C0392B}
+.pipe.retry{background:#FFFBEB;border-color:#FCD34D}
+.p-name{font-size:12px;font-weight:600;color:#0D0D0D;margin-top:6px}
+.p-stat{font-size:11px;color:#6B6B6B;margin-top:2px}
+
+/* ─── Current focus card ──────────────────────────────────── */
+.focus-card{
+  border:1px solid #2563EB;background:#EFF6FF;
+  padding:14px 18px;margin-bottom:16px;
+  display:flex;align-items:flex-start;justify-content:space-between;gap:16px;
+}
+.focus-card.alert{border-color:#C0392B;background:#FEF2F2}
+.focus-label{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px;color:#2563EB}
+.focus-card.alert .focus-label{color:#C0392B}
+.focus-title{font-size:14px;font-weight:600;color:#0D0D0D;margin-bottom:2px}
+.focus-detail{font-size:13px;color:#6B6B6B}
+.focus-elapsed{font-size:11px;color:#ADADAD;white-space:nowrap;margin-top:4px}
+
+/* ─── Feed ────────────────────────────────────────────────── */
+.feed-wrap{border:1px solid #E3E3E0;background:#fff;height:340px;overflow-y:auto}
+.feed-item{padding:10px 16px;border-bottom:1px solid #ECECEA}
+.fi-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:3px}
+.fi-left{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.fi-agent{font-size:13px;font-weight:600}
+.fi-step{font-size:13px;color:#6B6B6B}
+.fi-time{font-size:11px;color:#ADADAD;white-space:nowrap}
+.fi-body{font-size:13px;color:#0D0D0D;padding-left:16px}
+.fi-mono{
+  font-family:ui-monospace,monospace;font-size:12px;
+  background:#F7F7F5;padding:8px 12px;margin-top:6px;margin-left:16px;
+  white-space:pre;overflow-x:auto;color:#0D0D0D;
+}
+.chip{display:inline-block;font-size:11px;font-weight:700;padding:2px 7px;margin-left:6px}
+.chip-pass{background:#000;color:#fff}
+.chip-fail{background:#C0392B;color:#fff}
+.chip-warn{background:#B45309;color:#fff}
+
+/* ─── PM Chat ─────────────────────────────────────────────── */
+.pm-box{margin-top:16px;border:1px solid #E3E3E0;background:#fff}
+.pm-header{
+  padding:10px 16px;border-bottom:1px solid #E3E3E0;
+  font-size:12px;font-weight:600;color:#6B6B6B;
+  text-transform:uppercase;letter-spacing:.06em;
+}
+.pm-body{padding:12px 16px}
+.pm-response{
+  display:none;margin-top:12px;padding:12px 14px;
+  background:#F7F7F5;border-left:3px solid #0D0D0D;
+  font-size:13px;line-height:1.7;color:#0D0D0D;
+}
+
+/* ─── Decisions ───────────────────────────────────────────── */
+.dec-item{padding:16px 20px;margin-bottom:12px}
+.dec-block{border-left:4px solid #C0392B;background:#FEF2F2}
+.dec-warn{border-left:4px solid #FCD34D;background:#FFFBEB}
+.dec-head{font-size:13px;font-weight:700;margin-bottom:8px}
+.dec-block .dec-head{color:#C0392B}
+.dec-warn  .dec-head{color:#B45309}
+.dec-body{font-size:14px;color:#0D0D0D;margin-bottom:8px}
+.dec-detail{font-size:13px;color:#6B6B6B;margin-bottom:14px;line-height:1.9}
+.dec-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.expando{display:none;margin-top:12px}
+.expando.open{display:block}
+
+/* ─── Plan steps ──────────────────────────────────────────── */
+.plan-step{
+  display:flex;align-items:flex-start;gap:14px;
+  padding:14px 0;border-bottom:1px solid #ECECEA;
+}
+.plan-step:last-child{border-bottom:none}
+.ps-num{font-size:12px;font-weight:600;color:#ADADAD;min-width:20px;padding-top:1px}
+.ps-agent{font-size:13px;font-weight:600;min-width:110px}
+.ps-desc{font-size:13px;color:#6B6B6B;flex:1;line-height:1.6}
+.ps-tag{
+  font-size:11px;font-weight:600;padding:3px 9px;white-space:nowrap;
+}
+.tag-done{background:#F0FAF4;color:#1A6B3C;border:1px solid #1A6B3C}
+.tag-run{background:#EFF6FF;color:#2563EB;border:1px solid #BFDBFE}
+.tag-fail{background:#FEF2F2;color:#C0392B;border:1px solid #FECACA}
+.tag-wait{background:#F7F7F5;color:#ADADAD;border:1px solid #E3E3E0}
+
+/* ─── Tabs ────────────────────────────────────────────────── */
+.tabs{display:flex;border-bottom:1px solid #E3E3E0;margin-bottom:20px}
+.tab{
+  padding:8px 16px;font-size:13px;color:#6B6B6B;
+  cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;
+}
+.tab:hover{color:#0D0D0D}
+.tab.active{color:#0D0D0D;font-weight:600;border-bottom-color:#000}
+.tab.dim{color:#ADADAD;cursor:default}
+
+/* ─── Score grid ──────────────────────────────────────────── */
+.sg{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+.sbox{padding:16px;border:1px solid #E3E3E0;background:#F7F7F5}
+.slbl{font-size:12px;color:#6B6B6B;margin-bottom:6px}
+.sval{font-size:32px;font-weight:600;line-height:1}
+.spass{color:#1A6B3C}.sfail{color:#C0392B}
+.sbadge{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;text-transform:uppercase;margin-top:6px}
+.pass-b{background:#000;color:#fff}.fail-b{background:#C0392B;color:#fff}
+.res{padding:14px 16px;border:1px solid}
+.res-p{border-color:#1A6B3C;background:#F0FDF4}
+.res-f{border-color:#C0392B;background:#FEF2F2}
+.res-title{font-size:13px;font-weight:700;margin-bottom:6px}
+.res-p .res-title{color:#1A6B3C}.res-f .res-title{color:#C0392B}
+.res-body{font-size:13px;color:#6B6B6B;line-height:1.8}
+
+/* ─── Output viewer ───────────────────────────────────────── */
+.out-grid{display:grid;grid-template-columns:190px 1fr;border:1px solid #E3E3E0;min-height:460px}
+.ftree{border-right:1px solid #E3E3E0;background:#F7F7F5;padding:8px 0;overflow-y:auto}
+.ftree-group{font-size:11px;font-weight:600;color:#ADADAD;text-transform:uppercase;letter-spacing:.06em;padding:10px 16px 4px}
+.ftree-file{
+  padding:7px 16px;font-size:12px;color:#0D0D0D;cursor:pointer;
+  font-family:ui-monospace,monospace;
+}
+.ftree-file:hover{background:#ECECEA}
+.ftree-file.active{background:#ECECEA;font-weight:600}
+.ftree-file.dim{color:#ADADAD;cursor:default}
+.fpane{display:flex;flex-direction:column;background:#fff;overflow:hidden}
+.fpane-bar{padding:9px 16px;border-bottom:1px solid #E3E3E0;font-size:12px;font-weight:600;color:#6B6B6B;background:#F7F7F5;font-family:monospace}
+.fpane-body{padding:16px;font-family:ui-monospace,monospace;font-size:12px;line-height:1.7;white-space:pre;overflow:auto;flex:1}
+
+/* ─── Cost table ──────────────────────────────────────────── */
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-size:11px;font-weight:600;color:#6B6B6B;
+  text-transform:uppercase;letter-spacing:.06em;
+  padding:9px 12px;border-bottom:1px solid #E3E3E0;background:#F7F7F5}
+td{padding:10px 12px;border-bottom:1px solid #ECECEA;color:#0D0D0D}
+tr:last-child td{border-bottom:none}
+.mono{font-family:ui-monospace,monospace;font-size:12px}
+.green{color:#1A6B3C;font-weight:600}.red{color:#C0392B;font-weight:600}
+
+/* ─── Config stories ──────────────────────────────────────── */
+.story-item{
+  display:flex;align-items:flex-start;gap:12px;
+  padding:12px 0;border-bottom:1px solid #ECECEA;
+}
+.story-item:last-child{border-bottom:none}
+.story-item input[type=checkbox]{margin-top:3px;cursor:pointer;flex-shrink:0}
+.story-text{font-size:14px;color:#0D0D0D}
+.story-meta{font-size:12px;color:#ADADAD;margin-top:2px}
+
+/* ─── Vault editor ────────────────────────────────────────── */
+.vault-grid{display:grid;grid-template-columns:190px 1fr;border:1px solid #E3E3E0;min-height:400px}
+.vlist{border-right:1px solid #E3E3E0;background:#F7F7F5}
+.vitem{padding:12px 16px;cursor:pointer;border-bottom:1px solid #ECECEA;font-size:13px}
+.vitem:hover{background:#ECECEA}
+.vitem.active{background:#ECECEA;font-weight:600;border-left:3px solid #000;padding-left:13px}
+.vtok{font-size:11px;color:#ADADAD;margin-top:2px}
+.vtok.over{color:#C0392B}
+.vpane{padding:16px 20px;display:flex;flex-direction:column;gap:12px;overflow-y:auto}
+
+/* ─── Budget bar ──────────────────────────────────────────── */
+.big-budget{margin-bottom:24px}
+.bb-row{display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px}
+.bb-row strong{font-weight:600}
+.bb-track{background:#E3E3E0;height:8px}
+.bb-fill{height:8px;background:#0D0D0D}
+.bb-fill.warn{background:#B45309}
+.bb-fill.danger{background:#C0392B}
+
+/* ─── Misc helpers ────────────────────────────────────────── */
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.ok{
+  background:#F0FDF4;border:1px solid #1A6B3C;color:#1A6B3C;
+  padding:11px 16px;font-size:13px;font-weight:500;
+  margin-bottom:16px;display:none;
+}
+.ok.show{display:block}
+.warn-bar{
+  background:#FFFBEB;border:1px solid #FCD34D;color:#B45309;
+  padding:11px 16px;font-size:13px;font-weight:500;margin-bottom:16px;
+}
+.idle-wall{
+  border:1px solid #E3E3E0;padding:60px 32px;
+  text-align:center;color:#6B6B6B;
+}
+.idle-wall h3{font-size:16px;font-weight:600;color:#0D0D0D;margin-bottom:8px}
+code{font-family:monospace;background:#F7F7F5;padding:1px 5px;border:1px solid #E3E3E0;font-size:13px}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#E3E3E0;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#ADADAD}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
+.blink{animation:blink 1.6s ease-in-out infinite}
+</style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════════
+     TOP NAV
+════════════════════════════════════════════════ -->
+<nav class="nav">
+  <span class="nav-brand">Glowing Spoon</span>
+  <div class="nav-divider"></div>
+
+  <div class="nav-phases">
+    <div class="phase-tab active" data-phase="brief"   onclick="setPhase('brief')">Brief</div>
+    <div class="phase-tab"        data-phase="mission" onclick="setPhase('mission')">Mission</div>
+    <div class="phase-tab"        data-phase="review"  onclick="setPhase('review')">Review</div>
+  </div>
+
+  <div class="nav-right">
+    <div class="ws-wrap">
+      <select id="ws-select" onchange="setWorkspace(this.value)">
+        <option value="retailflow">RetailFlow</option>
+        <option value="dalalrating">DalAlRating</option>
+      </select>
+    </div>
+
+    <div class="status-pill sp-attention" id="status-pill">
+      ▲ Session 3 · Needs Attention
+    </div>
+
+    <div class="budget-nav" id="budget-nav">
+      <div class="bn-label">
+        <span>Budget</span>
+        <span id="bn-label-val">$1.87 / $5.00</span>
+      </div>
+      <div class="bn-track">
+        <div class="bn-fill warn" id="bn-fill" style="width:37%"></div>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<!-- ════════════════════════════════════════════════
+     SIDEBAR
+════════════════════════════════════════════════ -->
+<aside class="sidebar">
+
+  <!-- Brief sidebar -->
+  <div id="sb-brief">
+    <div class="sb-group">Setup</div>
+    <div class="sb-link active" data-v="product"   onclick="setView('product')">Product</div>
+    <div class="sb-link"        data-v="specs"      onclick="setView('specs')">Specs</div>
+    <div class="sb-link"        data-v="context"    onclick="setView('context')">Context Vault</div>
+    <div class="sb-group">Launch</div>
+    <div class="sb-link"        data-v="configure"  onclick="setView('configure')">Configure &amp; Launch</div>
+    <div class="sb-foot">
+      <button class="launch-cta" onclick="setView('configure')">Configure &amp; Launch →</button>
+    </div>
+  </div>
+
+  <!-- Mission sidebar -->
+  <div id="sb-mission" style="display:none">
+    <div class="sb-group">Live</div>
+    <div class="sb-link" data-v="feed"      onclick="setView('feed')">Live Feed</div>
+    <div class="sb-link" data-v="decisions" onclick="setView('decisions')">
+      Decisions <span class="sb-badge" id="dec-badge">1</span>
+    </div>
+    <div class="sb-link" data-v="plan"      onclick="setView('plan')">Execution Plan</div>
+  </div>
+
+  <!-- Review sidebar -->
+  <div id="sb-review" style="display:none">
+    <div class="sb-group">Deliverables</div>
+    <div class="sb-link" data-v="output"  onclick="setView('output')">Output Files</div>
+    <div class="sb-link" data-v="quality" onclick="setView('quality')">Quality Report</div>
+    <div class="sb-link" data-v="cost"    onclick="setView('cost')">Cost Report</div>
+  </div>
+
+</aside>
+
+<!-- ════════════════════════════════════════════════
+     MAIN
+════════════════════════════════════════════════ -->
+<main class="main">
+
+<!-- ── BRIEF: Product ───────────────────────────── -->
+<div class="view on" id="view-product">
+  <div class="ph">
+    <div class="pt">Product</div>
+    <div class="ps" id="prod-ps">Define what you're building. This becomes the PM's north star for every session.</div>
+  </div>
+  <div class="ok" id="prod-ok">Product saved.</div>
+  <div style="max-width:580px">
+    <div class="card">
+      <div class="card-title">PRODUCT.md · RetailFlow</div>
+      <div class="field">
+        <label>Product Name</label>
+        <input type="text" id="prod-name" value="RetailFlow">
+      </div>
+      <div class="field">
+        <label>What does it do</label>
+        <textarea id="prod-desc" rows="3">E-commerce platform with product catalog, cart, and checkout. Targeting SMB retailers who need a fast, mobile-first shopping experience.</textarea>
+      </div>
+      <div class="field">
+        <label>Tech Stack</label>
+        <input type="text" id="prod-stack" value="React 18, TypeScript, Node.js, PostgreSQL, Tailwind CSS">
+      </div>
+      <div class="field">
+        <label>What to build this session</label>
+        <textarea id="prod-goal" rows="2">Auth flows (login, signup) and product browsing components (product card, product detail page).</textarea>
+      </div>
+      <div class="field">
+        <label>Workspace path</label>
+        <input type="text" value="./workspaces/local/retailflow" class="ro" readonly>
+        <div class="hint">Derived automatically from tenantId + projectId.</div>
+      </div>
+      <div class="row">
+        <button class="btn btn-black" onclick="flash('prod-ok');setView('specs')">Save &amp; Next →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── BRIEF: Specs ──────────────────────────────── -->
+<div class="view" id="view-specs">
+  <div class="ph">
+    <div class="pt">Specs</div>
+    <div class="ps">Write your user stories and requirements. Spec files are what agents read to understand the work.</div>
+  </div>
+  <div class="ok" id="specs-ok">Saved.</div>
+  <div class="tabs" id="spec-tabs">
+    <div class="tab active" onclick="switchSpec(this,'stories')">stories.md</div>
+    <div class="tab" onclick="switchSpec(this,'requirements')">requirements.md</div>
+    <div class="tab" onclick="switchSpec(this,'figma')">figma-notes.md</div>
+  </div>
+  <div style="max-width:680px">
+    <div class="field">
+      <label id="spec-lbl">specs / stories.md</label>
+      <textarea id="spec-ed" rows="18" style="font-family:ui-monospace,monospace;font-size:13px">## Story 1: User Login
+As a user I can log in with email and password
+so that I can access my account.
+
+## Story 2: User Signup
+As a user I can create an account with name, email, and password
+so that I can start shopping.
+
+## Story 3: Product Card
+As a shopper I can see a product card with image, name, price,
+and an add-to-cart button so I can quickly browse.
+
+## Story 4: Product Detail
+As a shopper I can view full product details — images,
+description, size options, and add-to-cart.
+
+## Story 5: Cart
+As a shopper I can add and remove items from my cart
+and see a running total.</textarea>
+    </div>
+    <div style="font-size:12px;color:#6B6B6B;margin-bottom:16px" id="spec-tokens">Estimated: ~620 tokens</div>
+    <div class="row">
+      <button class="btn btn-black" onclick="flash('specs-ok');setView('context')">Save &amp; Next →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── BRIEF: Context Vault ──────────────────────── -->
+<div class="view" id="view-context">
+  <div class="ph">
+    <div class="pt">Context Vault</div>
+    <div class="ps">These files travel with every agent call. Every token here costs money on every call — keep them sharp.</div>
+  </div>
+  <div class="ok" id="ctx-ok">Vault file saved.</div>
+  <div class="vault-grid">
+    <div class="vlist">
+      <div class="vitem active" onclick="switchVault(this,'guardrails')">
+        guardrails.md
+        <div class="vtok">~1,240 tokens · always injected</div>
+      </div>
+      <div class="vitem" onclick="switchVault(this,'patterns')">
+        patterns.md
+        <div class="vtok">~2,100 tokens · always injected</div>
+      </div>
+      <div class="vitem" onclick="switchVault(this,'architecture')">
+        architecture.md
+        <div class="vtok over">~4,800 tokens ⚠ over 4,000 limit</div>
+      </div>
+      <div class="vitem" onclick="switchVault(this,'stack')">
+        stack.md
+        <div class="vtok">~890 tokens · dev, qa agents</div>
+      </div>
+      <div class="vitem" onclick="switchVault(this,'decisions')">
+        decisions.md
+        <div class="vtok">~540 tokens · agent-pm only</div>
+      </div>
+    </div>
+    <div class="vpane">
+      <div>
+        <div style="font-size:13px;font-weight:600;margin-bottom:4px" id="vault-title">guardrails.md</div>
+        <div class="over-hint" id="vault-warn" style="display:none">⚠ Over token limit. Trim before launch — excess tokens add cost to every single agent call for the life of this project.</div>
+      </div>
+      <textarea id="vault-ed" rows="16" style="font-family:ui-monospace,monospace;font-size:13px">## Guardrails
+
+Never:
+- No class components — functional only
+- No @material-ui — design system only
+- No inline styles — Tailwind or CSS modules
+- No localStorage for auth — httpOnly cookies only
+- No direct Anthropic API calls — route via utils/claude.js
+- No hardcoded tenantId — always from session context
+
+Always:
+- Named + default export on every component
+- TypeScript types on all props — no `any`
+- React.FC&lt;Props&gt; or explicit return type
+- try/catch on every API call
+- aria-label on every interactive element</textarea>
+      <div class="row">
+        <button class="btn btn-black btn-sm" onclick="flash('ctx-ok')">Save File</button>
+        <span style="font-size:12px;color:#ADADAD" id="vault-tok-count">~1,240 tokens</span>
+        <button class="btn btn-ghost" onclick="setView('configure')">Next: Configure &amp; Launch →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── BRIEF: Configure & Launch ────────────────── -->
+<div class="view" id="view-configure">
+  <div class="ph">
+    <div class="pt">Configure &amp; Launch</div>
+    <div class="ps">Select the stories for this session. Agent PM will plan around them. Recommend 5–8 stories per session.</div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 300px;gap:24px;max-width:900px">
+    <div>
+      <div class="card">
+        <div class="card-title">Story Selection — Session 3</div>
+        <div class="story-item">
+          <input type="checkbox" checked>
+          <div><div class="story-text">Story 1: User Login</div><div class="story-meta">auth · medium complexity</div></div>
+        </div>
+        <div class="story-item">
+          <input type="checkbox" checked>
+          <div><div class="story-text">Story 2: User Signup</div><div class="story-meta">auth · medium complexity</div></div>
+        </div>
+        <div class="story-item">
+          <input type="checkbox" checked>
+          <div><div class="story-text">Story 3: Product Card</div><div class="story-meta">product · low complexity</div></div>
+        </div>
+        <div class="story-item">
+          <input type="checkbox" checked>
+          <div><div class="story-text">Story 4: Product Detail</div><div class="story-meta">product · medium complexity</div></div>
+        </div>
+        <div class="story-item">
+          <input type="checkbox" checked>
+          <div><div class="story-text">Story 5: Cart</div><div class="story-meta">cart · medium complexity</div></div>
+        </div>
+        <div class="story-item">
+          <input type="checkbox">
+          <div><div class="story-text">Story 6: Checkout</div><div class="story-meta">checkout · high complexity · defer to Session 4</div></div>
+        </div>
+        <div class="story-item">
+          <input type="checkbox">
+          <div><div class="story-text">Story 7: Order Confirmation</div><div class="story-meta">checkout · low complexity</div></div>
+        </div>
+        <div class="story-item">
+          <input type="checkbox">
+          <div><div class="story-text">Story 8: User Profile</div><div class="story-meta">account · low complexity</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <div class="card-title">Session Budget</div>
+        <div class="field">
+          <label>Maximum spend (USD)</label>
+          <input type="number" value="5.00" step="0.50" min="1.00" style="width:130px">
+          <div class="hint">$1 small · $3 medium · $5 large</div>
+        </div>
+        <div style="background:#F7F7F5;border:1px solid #E3E3E0;padding:14px;font-size:13px;line-height:2">
+          <div style="font-weight:600;font-size:12px;color:#6B6B6B;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Estimate</div>
+          Stories: <strong>5</strong><br>
+          Cost range: <strong>$1.20 – $2.00</strong><br>
+          Agents: 5 in sequence<br>
+          Models: Sonnet + Haiku mix
+        </div>
+      </div>
+      <button class="btn btn-black btn-wide" onclick="launch()">
+        Launch Session →
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── MISSION: Live Feed ────────────────────────── -->
+<div class="view" id="view-feed">
+  <div class="ph">
+    <div class="pt">Live Feed</div>
+    <div class="ps" id="feed-ps">RetailFlow · Session 3 · 5 stories selected · <strong style="color:#C0392B">▲ Needs Attention</strong></div>
+  </div>
+
+  <!-- No session state -->
+  <div id="feed-idle" style="display:none">
+    <div class="idle-wall">
+      <h3>No active session</h3>
+      <p style="margin-bottom:20px">This workspace has no running session. Go to Brief to configure and launch one.</p>
+      <button class="btn btn-black" onclick="setPhase('brief')">Go to Brief →</button>
+    </div>
+  </div>
+
+  <!-- Active session -->
+  <div id="feed-live">
+    <!-- Pipeline -->
+    <div class="pipeline">
+      <div class="pipe done"><span class="dot d-done"></span><div class="p-name">spec-agent</div><div class="p-stat">Complete · v1</div></div>
+      <div class="pipe fail"><span class="dot d-fail"></span><div class="p-name">dev-agent</div><div class="p-stat">Retrying · 2 of 2</div></div>
+      <div class="pipe"><span class="dot d-idle"></span><div class="p-name">review-agent</div><div class="p-stat">Waiting</div></div>
+      <div class="pipe"><span class="dot d-idle"></span><div class="p-name">qa-agent</div><div class="p-stat">Waiting</div></div>
+      <div class="pipe"><span class="dot d-idle"></span><div class="p-name">docs-agent</div><div class="p-stat">Waiting</div></div>
+    </div>
+
+    <!-- Current focus -->
+    <div class="focus-card alert">
+      <div>
+        <div class="focus-label">Needs Your Decision</div>
+        <div class="focus-title">dev-agent · ProductCard.tsx failed quality gate</div>
+        <div class="focus-detail">Score 62/100 on pattern_compliance. Retry attempt 2 of 2 exhausted. Pipeline is paused.</div>
+      </div>
+      <div>
+        <button class="btn btn-red btn-sm" onclick="setView('decisions')">Go to Decisions →</button>
+      </div>
+    </div>
+
+    <!-- Event log -->
+    <div style="font-size:11px;font-weight:600;color:#6B6B6B;text-transform:uppercase;letter-spacing:.07em;padding-bottom:10px;border-bottom:1px solid #E3E3E0;margin-bottom:0">
+      Event Log
+    </div>
+    <div class="feed-wrap" id="feed-box"></div>
+
+    <div class="row" style="margin-top:14px">
+      <button class="btn btn-outline btn-sm" onclick="setView('decisions')">
+        Decisions
+        <span style="background:#C0392B;color:#fff;font-size:11px;font-weight:700;padding:1px 6px;margin-left:2px">1</span>
+      </button>
+      <button class="btn btn-ghost" id="pause-btn" onclick="togglePause()">Pause Session</button>
+    </div>
+
+    <!-- PM Chat -->
+    <div class="pm-box" style="margin-top:18px">
+      <div class="pm-header">Ask Agent PM · question, feedback, or scope change</div>
+      <div class="pm-body">
+        <textarea id="pm-input" rows="2" placeholder='e.g. "What did spec-agent produce for the login story?" or "Skip the docs step this session"'></textarea>
+        <div class="row" style="margin-top:10px">
+          <button class="btn btn-black btn-sm" onclick="pmSend()">Send</button>
+          <span style="font-size:12px;color:#ADADAD">Agent PM classifies intent and responds without pausing the pipeline</span>
+        </div>
+        <div class="pm-response" id="pm-reply"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── MISSION: Decisions ────────────────────────── -->
+<div class="view" id="view-decisions">
+  <div class="ph">
+    <div class="pt">Decisions</div>
+    <div class="ps">These items are blocking the pipeline. Your call unblocks the agents.</div>
+  </div>
+
+  <div class="ok" id="dec-ok">Feedback submitted. dev-agent is retrying with your notes. Pipeline resuming.</div>
+
+  <!-- BLOCKING item -->
+  <div class="dec-item dec-block" id="dec-1">
+    <div class="dec-head">▲ BLOCKING — Quality Gate Failed · Retry Limit Reached</div>
+    <div class="dec-body">
+      <strong>dev-agent</strong> scored <strong>62 / 100</strong> on pattern_compliance for
+      <code>ProductCard.tsx</code> after 2 attempts. Pipeline is paused.
+    </div>
+    <div class="dec-detail">
+      What went wrong:<br>
+      · No TypeScript types on 3 props — <code>quantity</code>, <code>onAdd</code>, <code>isLoading</code><br>
+      · Card wrapper pattern from <code>patterns.md</code> not followed<br>
+      · Missing named export — every component must export named + default
+    </div>
+    <div class="dec-actions">
+      <button class="btn btn-black btn-sm" onclick="decResolve()">Retry with Feedback</button>
+      <button class="btn btn-outline btn-sm" onclick="decEscalate()">Escalate to Manual Fix</button>
+      <button class="btn btn-ghost" onclick="tog('dec-note')">+ Add note</button>
+    </div>
+    <div class="expando" id="dec-note">
+      <div class="field" style="margin-top:12px">
+        <label>Note to dev-agent (optional)</label>
+        <textarea rows="2" placeholder='e.g. "Also use the btn-primary class on the Add to Cart button from the design system"'></textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- WARNING item -->
+  <div class="dec-item dec-warn" id="dec-2">
+    <div class="dec-head">⚠ WARNING — Session at 37% of Budget</div>
+    <div class="dec-body">$1.87 of $5.00 spent after 2 agents. 3 agents still to run.</div>
+    <div class="dec-detail">Projected total: $3.00 – $4.00. You are within budget. No action required unless you want to reduce scope.</div>
+    <div class="dec-actions">
+      <button class="btn btn-ghost" onclick="document.getElementById('dec-2').style.display='none'">Dismiss</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── MISSION: Execution Plan ───────────────────── -->
+<div class="view" id="view-plan">
+  <div class="ph">
+    <div class="pt">Execution Plan</div>
+    <div class="ps">Agent PM's plan for Session 3. Approved by you at 10:41. You can redirect at any time.</div>
+  </div>
+
+  <div class="ok" id="plan-ok">Plan updated. Agent PM will replan from the current step.</div>
+
+  <div class="card">
+    <div class="card-title">Session 3 · 5 Stories · Est. $1.20 – $2.00</div>
+    <div class="plan-step">
+      <div class="ps-num">1</div>
+      <div class="ps-agent">spec-agent</div>
+      <div class="ps-desc">Refine all 5 stories. Write acceptance criteria. Detect and resolve ambiguities.</div>
+      <div class="ps-tag tag-done">✓ Complete</div>
+    </div>
+    <div class="plan-step">
+      <div class="ps-num">2</div>
+      <div class="ps-agent">dev-agent</div>
+      <div class="ps-desc">Implement 5 React components: LoginForm, SignupForm, ProductCard, ProductDetailPage, CartDrawer.</div>
+      <div class="ps-tag tag-fail">▲ Retrying</div>
+    </div>
+    <div class="plan-step">
+      <div class="ps-num">3</div>
+      <div class="ps-agent">review-agent</div>
+      <div class="ps-desc">Architecture fit + code quality review of all generated components.</div>
+      <div class="ps-tag tag-wait">Waiting</div>
+    </div>
+    <div class="plan-step">
+      <div class="ps-num">4</div>
+      <div class="ps-agent">qa-agent</div>
+      <div class="ps-desc">Generate unit tests for each component. Target ≥ 80% coverage.</div>
+      <div class="ps-tag tag-wait">Waiting</div>
+    </div>
+    <div class="plan-step">
+      <div class="ps-num">5</div>
+      <div class="ps-agent">docs-agent</div>
+      <div class="ps-desc">Generate component docs. Update CHANGELOG.md.</div>
+      <div class="ps-tag tag-wait">Waiting</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Redirect Agent PM</div>
+    <div class="field">
+      <label>Instructions (scope change, skip a step, re-order)</label>
+      <textarea rows="3" id="plan-redirect" placeholder='e.g. "Skip the docs step this session" or "Add a review of the CartDrawer accessibility before QA"'></textarea>
+    </div>
+    <div class="row">
+      <button class="btn btn-black" onclick="redirectPlan()">Send to Agent PM</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── REVIEW: Output Files ──────────────────────── -->
+<div class="view" id="view-output">
+  <div class="ph">
+    <div class="pt">Output Files</div>
+    <div class="ps">Generated files by version. v1 promoted (spec-agent). v2 in progress (dev-agent retrying).</div>
+  </div>
+  <div class="tabs">
+    <div class="tab active">v1 — spec-agent · Passed</div>
+    <div class="tab" style="color:#B45309">v2 — dev-agent · Retrying</div>
+  </div>
+  <div class="out-grid">
+    <div class="ftree">
+      <div class="ftree-group">specs/</div>
+      <div class="ftree-file active" onclick="pickFile(this,'stories')">refined-stories.md</div>
+      <div class="ftree-file" onclick="pickFile(this,'criteria')">acceptance-criteria.md</div>
+      <div class="ftree-file" onclick="pickFile(this,'manifest')">manifest.json</div>
+      <div class="ftree-group" style="margin-top:6px">src/ (v2 pending)</div>
+      <div class="ftree-file dim">LoginForm.tsx</div>
+      <div class="ftree-file dim">ProductCard.tsx</div>
+      <div class="ftree-file dim">CartDrawer.tsx</div>
+    </div>
+    <div class="fpane">
+      <div class="fpane-bar" id="file-bar">specs / refined-stories.md</div>
+      <div class="fpane-body" id="file-body"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── REVIEW: Quality Report ────────────────────── -->
+<div class="view" id="view-quality">
+  <div class="ph">
+    <div class="pt">Quality Report</div>
+    <div class="ps">Quality gate scores per agent and per version. Threshold: all dimensions ≥ 75, overall ≥ 80.</div>
+  </div>
+
+  <div class="tabs" id="qa-agent-tabs">
+    <div class="tab active" onclick="qaAgent(this,'spec')">spec-agent</div>
+    <div class="tab" onclick="qaAgent(this,'dev')">dev-agent</div>
+    <div class="tab dim">review-agent</div>
+    <div class="tab dim">qa-agent</div>
+    <div class="tab dim">docs-agent</div>
+  </div>
+
+  <!-- spec-agent panel -->
+  <div id="qp-spec">
+    <div class="tabs"><div class="tab active">v1 — Passed · 10:42:03</div></div>
+    <div class="sg">
+      <div class="sbox"><div class="slbl">spec_compliance</div><div class="sval spass">91</div><span class="sbadge pass-b">Pass</span></div>
+      <div class="sbox"><div class="slbl">pattern_compliance</div><div class="sval spass">88</div><span class="sbadge pass-b">Pass</span></div>
+      <div class="sbox"><div class="slbl">guardrail_compliance</div><div class="sval spass">100</div><span class="sbadge pass-b">Pass</span></div>
+      <div class="sbox"><div class="slbl">completeness</div><div class="sval spass">84</div><span class="sbadge pass-b">Pass</span></div>
+    </div>
+    <div class="res res-p">
+      <div class="res-title">Overall: 90 — PASS</div>
+      <div class="res-body">All 5 stories refined with full acceptance criteria. No unresolved ambiguities. v1 promoted to /output/current.</div>
+    </div>
+  </div>
+
+  <!-- dev-agent panel -->
+  <div id="qp-dev" style="display:none">
+    <div class="tabs" id="dev-ver-tabs">
+      <div class="tab active" onclick="qaVer(this,'dv1')">v1 — Failed · 10:43:01</div>
+      <div class="tab" onclick="qaVer(this,'dv2')">v2 — Retrying</div>
+    </div>
+    <div id="dv1">
+      <div class="sg">
+        <div class="sbox"><div class="slbl">spec_compliance</div><div class="sval spass">82</div><span class="sbadge pass-b">Pass</span></div>
+        <div class="sbox"><div class="slbl">pattern_compliance</div><div class="sval sfail">62</div><span class="sbadge fail-b">Fail</span></div>
+        <div class="sbox"><div class="slbl">guardrail_compliance</div><div class="sval spass">95</div><span class="sbadge pass-b">Pass</span></div>
+        <div class="sbox"><div class="slbl">completeness</div><div class="sval spass">79</div><span class="sbadge pass-b">Pass</span></div>
+      </div>
+      <div class="res res-f">
+        <div class="res-title">Overall: 71 — FAIL</div>
+        <div class="res-body">
+          · Missing TypeScript types on 3 props in ProductCard.tsx<br>
+          · Card wrapper pattern from patterns.md not followed<br>
+          · Named export missing — required on every component
+        </div>
+      </div>
+    </div>
+    <div id="dv2" style="display:none">
+      <div class="idle-wall blink" style="border-color:#2563EB">
+        <div style="color:#2563EB;font-weight:600;font-size:14px">● Retrying</div>
+        <div style="margin-top:8px;font-size:13px;color:#6B6B6B">dev-agent is rewriting ProductCard.tsx with quality gate feedback injected.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── REVIEW: Cost Report ───────────────────────── -->
+<div class="view" id="view-cost">
+  <div class="ph">
+    <div class="pt">Cost Report</div>
+    <div class="ps" id="cost-ps">RetailFlow · Session 3 · $1.87 of $5.00 spent so far</div>
+  </div>
+
+  <div class="big-budget">
+    <div class="bb-row">
+      <span>Session Budget</span>
+      <strong id="cost-label">$1.87 spent · $3.13 remaining · 37% used</strong>
+    </div>
+    <div class="bb-track">
+      <div class="bb-fill warn" id="cost-fill" style="width:37%"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">By Agent</div>
+    <table>
+      <thead><tr><th>Agent</th><th>Model</th><th>Input</th><th>Output</th><th>Cost</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td style="font-weight:600">spec-agent</td><td class="mono">claude-sonnet-4</td><td class="mono">12,400</td><td class="mono">3,200</td><td class="mono green">$0.84</td><td><span class="ps-tag tag-done" style="font-size:11px;font-weight:600;padding:2px 8px">Complete</span></td></tr>
+        <tr><td style="font-weight:600">dev-agent</td><td class="mono">claude-sonnet-4</td><td class="mono">18,200</td><td class="mono">4,100</td><td class="mono green">$1.03</td><td><span class="ps-tag tag-fail" style="font-size:11px;font-weight:600;padding:2px 8px">Retrying</span></td></tr>
+        <tr><td style="font-weight:600">quality-scorer</td><td class="mono">claude-haiku-4-5</td><td class="mono">8,000</td><td class="mono">1,300</td><td class="mono">$0.00</td><td><span class="ps-tag tag-done" style="font-size:11px;font-weight:600;padding:2px 8px">2 calls</span></td></tr>
+        <tr style="color:#ADADAD"><td>review-agent</td><td class="mono">—</td><td class="mono">—</td><td class="mono">—</td><td class="mono">pending</td><td>—</td></tr>
+        <tr style="color:#ADADAD"><td>qa-agent</td><td class="mono">—</td><td class="mono">—</td><td class="mono">—</td><td class="mono">pending</td><td>—</td></tr>
+        <tr style="color:#ADADAD"><td>docs-agent</td><td class="mono">—</td><td class="mono">—</td><td class="mono">—</td><td class="mono">pending</td><td>—</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Call Log</div>
+    <table>
+      <thead><tr><th>Time</th><th>Agent</th><th>Call</th><th>Model</th><th>In</th><th>Out</th><th>Cost</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">10:41:03</td><td>spec-agent</td><td>plan</td><td class="mono">sonnet</td><td class="mono">2,100</td><td class="mono">480</td><td class="mono">$0.14</td></tr>
+        <tr><td class="mono">10:41:18</td><td>spec-agent</td><td>refine × 5</td><td class="mono">sonnet</td><td class="mono">8,200</td><td class="mono">2,100</td><td class="mono">$0.56</td></tr>
+        <tr><td class="mono">10:42:03</td><td>spec-agent</td><td>compress history</td><td class="mono">haiku</td><td class="mono">2,100</td><td class="mono">620</td><td class="mono">$0.00</td></tr>
+        <tr><td class="mono">10:42:05</td><td>quality-scorer</td><td>score v1</td><td class="mono">haiku</td><td class="mono">4,800</td><td class="mono">890</td><td class="mono">$0.00</td></tr>
+        <tr><td class="mono">10:42:12</td><td>dev-agent</td><td>skill-resolve</td><td class="mono">haiku</td><td class="mono">1,800</td><td class="mono">240</td><td class="mono">$0.00</td></tr>
+        <tr><td class="mono">10:42:38</td><td>dev-agent</td><td>write × 2 components</td><td class="mono">sonnet</td><td class="mono">16,400</td><td class="mono">3,860</td><td class="mono">$1.03</td></tr>
+        <tr><td class="mono">10:43:14</td><td>quality-scorer</td><td>score v1</td><td class="mono">haiku</td><td class="mono">3,200</td><td class="mono">410</td><td class="mono">$0.00</td></tr>
+        <tr style="font-weight:600"><td colspan="6" style="font-size:12px;color:#6B6B6B">Session total</td><td class="mono green">$1.87</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+</main>
+
+<!-- ════════════════════════════════════════════════
+     FOOTER
+════════════════════════════════════════════════ -->
+<footer>
+  <span>Glowing Spoon</span><span>·</span>
+  <span>Phase 1 MVP · Local</span><span>·</span>
+  <span id="footer-txt">RetailFlow · Session 3 · Needs Attention</span>
+</footer>
+
+<!-- ════════════════════════════════════════════════
+     SCRIPT
+════════════════════════════════════════════════ -->
+<script>
+/* ── Workspace data ──────────────────────────────── */
+const WS = {
+  retailflow: {
+    name:'RetailFlow', session:3, hasSession:true,
+    statusClass:'sp-attention', statusText:'▲ Session 3 · Needs Attention',
+    cost:1.87, budget:5.00, budgetPct:37, budgetClass:'warn',
+    footerTxt:'RetailFlow · Session 3 · Needs Attention',
+    costLabel:'$1.87 spent · $3.13 remaining · 37% used',
+    costPsLabel:'RetailFlow · Session 3 · $1.87 of $5.00 spent so far',
+    feedPsHtml:'RetailFlow · Session 3 · 5 stories · <strong style="color:#C0392B">▲ Needs Attention</strong>',
+  },
+  dalalrating: {
+    name:'DalAlRating', session:null, hasSession:false,
+    statusClass:'sp-idle', statusText:'No Session · Idle',
+    cost:0, budget:5.00, budgetPct:0, budgetClass:'',
+    footerTxt:'DalAlRating · Idle',
+    costLabel:'$0.00 spent · $5.00 remaining',
+    costPsLabel:'DalAlRating · No active session',
+    feedPsHtml:'DalAlRating · No active session',
+  }
+};
+let currentWS = 'retailflow';
+let currentPhase = 'brief';
+let currentView  = 'product';
+
+/* ── Workspace switch ────────────────────────────── */
+function setWorkspace(id) {
+  currentWS = id;
+  const w = WS[id];
+
+  // status pill
+  const pill = document.getElementById('status-pill');
+  pill.className = 'status-pill ' + w.statusClass;
+  pill.textContent = w.statusText;
+
+  // mini budget bar
+  document.getElementById('bn-label-val').textContent = `$${w.cost.toFixed(2)} / $${w.budget.toFixed(2)}`;
+  const bf = document.getElementById('bn-fill');
+  bf.style.width = w.budgetPct + '%';
+  bf.className = 'bn-fill ' + w.budgetClass;
+
+  // footer
+  document.getElementById('footer-txt').textContent = w.footerTxt;
+
+  // cost report
+  document.getElementById('cost-ps').textContent = w.costPsLabel;
+  document.getElementById('cost-label').textContent = w.costLabel;
+  document.getElementById('cost-fill').style.width = w.budgetPct + '%';
+  document.getElementById('cost-fill').className = 'bb-fill ' + w.budgetClass;
+
+  // feed
+  document.getElementById('feed-ps').innerHTML = w.feedPsHtml;
+  document.getElementById('feed-idle').style.display = w.hasSession ? 'none' : '';
+  document.getElementById('feed-live').style.display  = w.hasSession ? '' : 'none';
+
+  // re-draw current view
+  redraw();
+}
+
+/* ── Phase switch ────────────────────────────────── */
+function setPhase(phase) {
+  currentPhase = phase;
+  // tabs
+  document.querySelectorAll('.phase-tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.phase === phase));
+  // sidebars
+  ['brief','mission','review'].forEach(p => {
+    document.getElementById('sb-' + p).style.display = p === phase ? '' : 'none';
+  });
+  // default view per phase
+  const defaults = { brief:'product', mission:'feed', review:'output' };
+  setView(defaults[phase]);
+}
+
+/* ── View switch ─────────────────────────────────── */
+function setView(v) {
+  currentView = v;
+  // hide all views
+  document.querySelectorAll('.view').forEach(el => el.classList.remove('on'));
+  const vEl = document.getElementById('view-' + v);
+  if (vEl) vEl.classList.add('on');
+  // sidebar active
+  document.querySelectorAll('.sb-link').forEach(l =>
+    l.classList.toggle('active', l.dataset.v === v));
+  // build feed once
+  if (v === 'feed' && !feedBuilt) buildFeed();
+  // seed file viewer
+  if (v === 'output') {
+    document.getElementById('file-body').textContent = FILE_DATA.stories.body;
+  }
+  // seed vault
+  if (v === 'context') {
+    document.getElementById('vault-ed').value = VAULT_DATA.guardrails.body;
+  }
+}
+
+function redraw() { setView(currentView); }
+
+/* ── Launch ──────────────────────────────────────── */
+function launch() {
+  if (!confirm('Launch Session 3 for ' + WS[currentWS].name + '?')) return;
+  WS[currentWS].hasSession = true;
+  setPhase('mission');
+}
+
+/* ── Feed ────────────────────────────────────────── */
+const EVENTS = [
+  {a:'spec-agent', s:'session start',       body:'Workspace validated. 5 stories loaded. Skills snapshotted.', t:'10:41:02', dot:'d-done'},
+  {a:'spec-agent', s:'refine · 1/5',        body:'Login story refined. 6 acceptance criteria written.',        t:'10:41:18', dot:'d-done'},
+  {a:'spec-agent', s:'refine · 2/5',        body:'Signup refined. Ambiguity resolved: password policy defaulted to 8 chars + 1 uppercase.', t:'10:41:29', dot:'d-done'},
+  {a:'spec-agent', s:'refine · 3–5',        body:'Product card, detail, and cart stories refined.',            t:'10:41:51', dot:'d-done'},
+  {a:'spec-agent', s:'quality gate',        body:'Score: 90 / 100. All dimensions pass. v1 promoted.',         t:'10:42:03', dot:'d-done', chip:'pass', score:90},
+  {a:'agent-pm',   s:'routing',             body:'spec-agent complete. Passing refined stories to dev-agent.', t:'10:42:10', dot:'d-done'},
+  {a:'dev-agent',  s:'skill resolve',       body:'Skills loaded: write-react-component, follow-patterns.',     t:'10:42:12', dot:'d-run'},
+  {a:'dev-agent',  s:'write · LoginForm',   body:'LoginForm.tsx written — 52 lines.',
+    mono:`export const LoginForm: React.FC = () => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  // validates, submits, handles loading state
+};
+export default LoginForm;`,                                                                                      t:'10:42:38', dot:'d-run'},
+  {a:'dev-agent',  s:'write · ProductCard', body:'ProductCard.tsx written — running quality gate.',
+    mono:`// Pattern compliance issue: missing TypeScript types
+export const ProductCard = ({ name, price, image, onAdd }) => {
+  return <div className="card">...</div>;
+};`,                                                                                                             t:'10:43:01', dot:'d-fail'},
+  {a:'dev-agent',  s:'quality gate',        body:'Score: 71 / 100. pattern_compliance FAILED (62). Retry 1 of 2.', t:'10:43:14', dot:'d-retry', chip:'fail', score:71},
+  {a:'dev-agent',  s:'retry · attempt 2',   body:'Rewriting ProductCard.tsx with feedback injected.',           t:'10:43:16', dot:'d-retry', chip:'warn'},
+  {a:'dev-agent',  s:'quality gate',        body:'Score: 68 / 100. Still below threshold. Retry limit reached. Escalating.', t:'10:44:02', dot:'d-fail', chip:'fail', score:68},
+  {a:'agent-pm',   s:'escalation',          body:'dev-agent hit retry limit. Pipeline paused. Awaiting PM decision in Decisions.',  t:'10:44:03', dot:'d-done'},
+];
+
+let feedBuilt = false;
+function buildFeed() {
+  feedBuilt = true;
+  const box = document.getElementById('feed-box');
+  box.innerHTML = '';
+  EVENTS.forEach((e, i) => {
+    setTimeout(() => {
+      box.appendChild(makeFI(e));
+      box.scrollTop = box.scrollHeight;
+    }, i * 140);
+  });
+}
+function makeFI(e) {
+  const d = document.createElement('div');
+  d.className = 'feed-item';
+  let chipHtml = '';
+  if (e.chip === 'pass') chipHtml = `<span class="chip chip-pass">✓ ${e.score}</span>`;
+  if (e.chip === 'fail') chipHtml = `<span class="chip chip-fail">✗ ${e.score}</span>`;
+  if (e.chip === 'warn') chipHtml = `<span class="chip chip-warn">↻ retry</span>`;
+  d.innerHTML = `
+    <div class="fi-row">
+      <div class="fi-left">
+        <span class="dot ${e.dot}"></span>
+        <span class="fi-agent">${h(e.a)}</span>
+        <span class="fi-step">· ${h(e.s)}</span>
+        ${chipHtml}
+      </div>
+      <span class="fi-time">${e.t}</span>
+    </div>
+    <div class="fi-body">${h(e.body)}</div>
+    ${e.mono ? `<div class="fi-mono">${h(e.mono)}</div>` : ''}`;
+  return d;
+}
+function h(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+
+let paused = false;
+function togglePause(){
+  paused = !paused;
+  document.getElementById('pause-btn').textContent = paused ? 'Resume Session' : 'Pause Session';
+}
+
+const PM_REPLIES = [
+  "spec-agent refined all 5 stories and wrote full acceptance criteria. Quality score was 90/100. Output is in /output/versions/v1/specs/. The login and signup stories are particularly tight — no ambiguities.",
+  "Pipeline is paused at dev-agent. ProductCard.tsx failed quality gate twice. Scores: spec_compliance 82, pattern_compliance 62, guardrail_compliance 95, completeness 79. Overall 71. Issue is TypeScript types and card wrapper pattern. Waiting on your decision in Decisions.",
+  "At current token rates, remaining cost estimate is $1.40–$2.10 for review-agent, qa-agent, and docs-agent. You are on track to finish within the $5.00 budget.",
+  "Understood. I'll skip the docs step this session and queue it for Session 4. I'll update the plan now — review-agent and qa-agent will still run as planned."
+];
+let pmIdx = 0;
+function pmSend(){
+  const inp = document.getElementById('pm-input');
+  if (!inp.value.trim()) return;
+  inp.value = '';
+  const rep = document.getElementById('pm-reply');
+  rep.style.display = 'block';
+  rep.textContent = 'Thinking…';
+  setTimeout(() => { rep.textContent = PM_REPLIES[pmIdx++ % PM_REPLIES.length]; }, 800);
+}
+
+/* ── Decisions ───────────────────────────────────── */
+function decResolve(){
+  document.getElementById('dec-1').style.display = 'none';
+  document.getElementById('dec-badge').style.display = 'none';
+  flash('dec-ok');
+}
+function decEscalate(){
+  if (!confirm('Mark as manual fix? Pipeline stays paused until you mark it resolved.')) return;
+  document.getElementById('dec-1').innerHTML = `
+    <div class="dec-head">▲ BLOCKING — Escalated · Awaiting Manual Fix</div>
+    <div class="dec-body"><strong>dev-agent</strong> · ProductCard.tsx · Fix in your codebase, then mark resolved.</div>
+    <div class="dec-actions">
+      <button class="btn btn-black btn-sm" onclick="decResolve()">Mark Resolved · Resume Pipeline</button>
+    </div>`;
+}
+function tog(id){ document.getElementById(id).classList.toggle('open'); }
+
+/* ── Plan ────────────────────────────────────────── */
+function redirectPlan(){
+  const v = document.getElementById('plan-redirect').value.trim();
+  if (!v){ alert('Enter instructions first.'); return; }
+  document.getElementById('plan-redirect').value = '';
+  flash('plan-ok');
+}
+
+/* ── Quality tabs ────────────────────────────────── */
+function qaAgent(tab, key){
+  document.querySelectorAll('#qa-agent-tabs .tab:not(.dim)').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  document.getElementById('qp-spec').style.display = key==='spec' ? '' : 'none';
+  document.getElementById('qp-dev').style.display  = key==='dev'  ? '' : 'none';
+}
+function qaVer(tab, id){
+  document.querySelectorAll('#dev-ver-tabs .tab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  document.getElementById('dv1').style.display = id==='dv1' ? '' : 'none';
+  document.getElementById('dv2').style.display = id==='dv2' ? '' : 'none';
+}
+
+/* ── Output viewer ───────────────────────────────── */
+const FILE_DATA = {
+  stories:{
+    bar:'specs / refined-stories.md',
+    body:`# Refined Stories — Session 3
+
+## Story 1: User Login
+As a user I can log in with my email and password
+so that I can access my account and personalized content.
+
+Acceptance Criteria:
+  - Email validates format on blur
+  - Password min 8 characters
+  - Submit disabled until both fields valid
+  - On success: redirect to /dashboard
+  - On failure: "Invalid email or password" shown inline
+  - Loading state shown during API call
+
+## Story 2: User Signup
+As a user I can create a new account with name, email, and password.
+
+Acceptance Criteria:
+  - Name: required, min 2 chars
+  - Email: valid format, not already registered
+  - Password: min 8 chars, 1 uppercase, 1 number
+  - Confirm password must match
+  - On success: auto-login, redirect to /dashboard
+
+## Story 3: Product Card
+As a shopper I can see a product card with image, name, price,
+and an add-to-cart button so I can quickly browse products.
+
+Acceptance Criteria:
+  - Shows image, name (truncate >40 chars), formatted price
+  - Add to Cart: primary CTA style
+  - Disabled + "Out of Stock" when unavailable
+  - Loading state during add action
+  - Cart count in nav updates on success`
+  },
+  criteria:{
+    bar:'specs / acceptance-criteria.md',
+    body:`# Acceptance Criteria — Session 3
+
+STORY 1: Login
+  GIVEN valid credentials
+  WHEN I click Sign In
+  THEN redirected to /dashboard within 2s
+
+  GIVEN invalid credentials
+  WHEN I click Sign In
+  THEN "Invalid email or password" shown below form
+
+STORY 2: Signup
+  GIVEN all fields correct
+  WHEN I click Create Account
+  THEN auto-login, redirect to /dashboard
+
+  GIVEN email already registered
+  WHEN I click Create Account
+  THEN "An account with this email already exists" on email field
+
+STORY 3: Product Card
+  GIVEN product is in stock
+  THEN Add to Cart button is enabled, primary style
+
+  GIVEN product is out of stock
+  THEN button shows "Out of Stock" and is disabled`
+  },
+  manifest:{
+    bar:'specs / manifest.json',
+    body:`{
+  "version": 1,
+  "agentId": "spec-agent",
+  "sessionId": "sess-003",
+  "tenantId": "local",
+  "projectId": "retailflow",
+  "timestamp": 1746873705000,
+  "files": [
+    "specs/refined-stories.md",
+    "specs/acceptance-criteria.md"
+  ],
+  "trigger": "initial",
+  "qualityScore": 90,
+  "storiesProcessed": 5,
+  "skillVersions": {
+    "refine-story": "1.3",
+    "write-acceptance-criteria": "1.1",
+    "detect-ambiguity": "1.0"
+  }
+}`
+  }
+};
+function pickFile(el, key){
+  document.querySelectorAll('.ftree-file').forEach(f => f.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('file-bar').textContent = FILE_DATA[key].bar;
+  document.getElementById('file-body').textContent = FILE_DATA[key].body;
+}
+
+/* ── Vault (Brief) ───────────────────────────────── */
+const VAULT_DATA = {
+  guardrails:{
+    title:'guardrails.md', tok:'~1,240 tokens', warn:false,
+    body:`## Guardrails
+
+Never:
+- No class components — functional only
+- No @material-ui — design system only
+- No inline styles — Tailwind or CSS modules
+- No localStorage for auth — httpOnly cookies only
+- No direct Anthropic calls — utils/claude.js only
+- No hardcoded tenantId — always from session context
+
+Always:
+- Named + default export on every component
+- TypeScript types on all props — no \`any\`
+- React.FC<Props> or explicit return type
+- try/catch on every API call
+- aria-label on every interactive element`
+  },
+  patterns:{
+    title:'patterns.md', tok:'~2,100 tokens', warn:false,
+    body:`## Patterns
+
+Component:
+- File: src/components/{Name}/{Name}.tsx
+- Props interface: {Name}Props, above the component
+- Named + default export required on every file
+- No barrel index.ts files
+
+Naming:
+- Components: PascalCase
+- Hooks: useXxx
+- Utils: camelCase
+- Constants: SCREAMING_SNAKE_CASE
+
+State:
+- Server: React Query (useQuery, useMutation)
+- UI: useState or useReducer
+- No Redux, no Context for server data`
+  },
+  architecture:{
+    title:'architecture.md', tok:'~4,800 tokens', warn:true,
+    body:`## Architecture
+
+Frontend: React 18 + TypeScript + Vite
+Backend:  Node.js + Express
+Database: PostgreSQL 16
+Auth:     JWT in httpOnly cookies
+Data:     React Query v5
+Styling:  Tailwind CSS v3
+
+API:
+- REST, /api/v1 prefix
+- Errors: { error: string, code: string, field?: string }
+- Pagination: cursor-based
+
+Folders:
+- src/components/  UI components
+- src/hooks/       custom hooks
+- src/api/         React Query hooks
+- src/utils/       pure functions
+- src/types/       shared TypeScript types
+
+[... additional content — over token limit, trim before next session]`
+  },
+  stack:{
+    title:'stack.md', tok:'~890 tokens', warn:false,
+    body:`## Stack
+
+Node:       20.x
+React:      18.3
+TypeScript: 5.4
+Tailwind:   3.4
+ReactQuery: 5.x
+Vite:       5.x
+Express:    4.x
+PostgreSQL: 16
+Testing:    Jest + Testing Library
+E2E:        Playwright`
+  },
+  decisions:{
+    title:'decisions.md', tok:'~540 tokens', warn:false,
+    body:`## Decisions
+
+[2026-05-08] Auth: httpOnly cookies (not localStorage)
+Reason: localStorage is XSS-vulnerable.
+
+[2026-05-08] No Redux
+Reason: React Query handles all server state.
+
+[2026-05-09] Tailwind over CSS Modules
+Reason: Faster iteration, tokens map to config.
+
+[2026-05-10] Cursor pagination over offset
+Reason: Product catalog is unbounded — offset degrades.`
+  }
+};
+function switchVault(el, key){
+  document.querySelectorAll('.vitem').forEach(v => v.classList.remove('active'));
+  el.classList.add('active');
+  const d = VAULT_DATA[key];
+  document.getElementById('vault-title').textContent = d.title;
+  document.getElementById('vault-ed').value = d.body;
+  document.getElementById('vault-tok-count').textContent = d.tok;
+  document.getElementById('vault-warn').style.display = d.warn ? '' : 'none';
+}
+
+/* ── Spec tabs (Brief) ───────────────────────────── */
+const SPEC_DATA = {
+  stories:{ lbl:'specs / stories.md', tok:'~620 tokens',
+    body:`## Story 1: User Login\nAs a user I can log in with email and password\nso that I can access my account.\n\n## Story 2: User Signup\nAs a user I can create an account with name, email, and password.\n\n## Story 3: Product Card\nAs a shopper I can see a product card with image, name, price, and add-to-cart button.\n\n## Story 4: Product Detail\nAs a shopper I can view full product details — images, description, size options, add-to-cart.\n\n## Story 5: Cart\nAs a shopper I can add and remove items and see a running total.`},
+  requirements:{ lbl:'specs / requirements.md', tok:'~380 tokens',
+    body:`## Non-Functional Requirements\n\nPerformance:\n- Page load < 2s on 4G\n- API < 500ms p95\n\nAccessibility:\n- WCAG 2.1 AA\n- Keyboard navigable\n\nSecurity:\n- Auth tokens in httpOnly cookies\n- CSRF protection on all mutations\n- Input sanitization on all forms`},
+  figma:{ lbl:'specs / figma-notes.md', tok:'~210 tokens',
+    body:`## Figma Notes\n\nDesign tokens:\n- Primary: #000000\n- Background: #FFFFFF\n- Border: #E3E3E0\n- Font: Inter (400, 500, 600)\n\nComponents:\n- Buttons: border-radius 0 (rectangle)\n- Cards: 1px border, no shadow\n- Inputs: 1px border, focus ring black\n\nSpacing: 8px base`}
+};
+function switchSpec(tab, key){
+  document.querySelectorAll('#spec-tabs .tab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  document.getElementById('spec-lbl').textContent = SPEC_DATA[key].lbl;
+  document.getElementById('spec-ed').value = SPEC_DATA[key].body;
+  document.getElementById('spec-tokens').textContent = 'Estimated: ' + SPEC_DATA[key].tok;
+}
+
+/* ── Flash ───────────────────────────────────────── */
+function flash(id){
+  const el = document.getElementById(id);
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+/* ── Init ────────────────────────────────────────── */
+window.addEventListener('load', () => {
+  setPhase('brief');
+  // seed
+  document.getElementById('file-body').textContent = FILE_DATA.stories.body;
+  switchVault(document.querySelector('.vitem.active'), 'guardrails');
+});
+</script>
+</body>
+</html>
