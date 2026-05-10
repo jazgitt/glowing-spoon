@@ -7,7 +7,7 @@ Agent PM is not a one-shot call. It maintains conversation history across the en
 Loaded at session start from the workspace vault — NOT a hardcoded constant:
 `/workspaces/{tenantId}/{projectId}/context-vault/agent-pm-prompt.md`
 
-Platform ships a default at `/defaults/agent-pm-prompt.md` copied into every new workspace by `POST /workspace/init`.
+Platform ships a default at `/defaults/agent-pm-prompt.md` copied into every new workspace by `glowing-spoon workspace init`.
 
 The prompt must cover: role, planning rules (5-8 stories/session), intent classification, routing logic, recovery behavior, output format (structured JSON so agent-pm.js can parse routing without regex).
 

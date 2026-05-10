@@ -8,6 +8,8 @@ Read this entire file before writing a single line of code. Then read any refere
 
 Multi-tenant SaaS platform that runs AI-native engineering teams. No human developers. Agents do all work using skills. Multiple PMs run independent projects simultaneously — their data never touches.
 
+This is a **CLI tool**. PMs and engineers interact entirely via terminal commands. No UI.
+
 ```
 GLOWING SPOON (this repo — shared platform, tenant-aware)
         +
@@ -27,7 +29,7 @@ Every design decision follows from these. Internalize them first.
 5. **All failures are typed.** No generic errors. Every failure has a type, a recovery strategy, and a PM notification level.
 6. **Output is versioned.** Every agent output is a new version. Retries never overwrite.
 7. **Token budget is managed proactively.** Every Claude call knows its budget before it starts. Never silently overflow.
-8. **PM attention is scarce.** UI clearly separates informational events (AgentFeed) from events requiring PM action (AttentionQueue).
+8. **PM attention is scarce.** Session output clearly separates informational logs from blocked states that require PM action.
 9. **Right model for right task.** Sonnet for reasoning. Haiku for mechanical tasks (scoring, skill resolution, history compression). Never use Sonnet where Haiku is sufficient.
 10. **Cost is tracked in real time.** Every Claude call records token usage and cost. Sessions have a cost budget. PM is warned at 80% and blocked at 100%.
 
@@ -35,7 +37,7 @@ Every design decision follows from these. Internalize them first.
 
 ## Tenant & Project Data Model
 
-This scopes everything — sessions, file paths, API routes, SSE streams. Even in local MVP, `tenantId` is always `"local"`. Never skip it.
+This scopes everything — sessions, file paths. Even in local MVP, `tenantId` is always `"local"`. Never skip it.
 
 ```javascript
 { tenantId: "uuid", projectId: "uuid", sessionId: "uuid" }
@@ -57,31 +59,19 @@ function getWorkspacePath(tenantId, projectId) {
   CLAUDE.md
   /guardrails                        ← implementation specs, read before building each module
 
-  /ui/src
-    App.jsx
-    /views
-      WorkspaceSelector.jsx          ← PM selects project; calls POST /workspace/init if needed
-      SessionControl.jsx             ← main interactive dashboard
-      AgentFeed.jsx                  ← live Tier 1 event stream
-      AttentionQueue.jsx             ← Tier 2 BLOCKING items only
-      PlanReview.jsx                 ← Agent PM plan: approve or give inline feedback
-      QualityPanel.jsx               ← per-agent scores + version history
-      OutputViewer.jsx               ← browse generated files, diff between versions
-      ContextVaultViewer.jsx
-    /components
-      AgentCard.jsx
-      CheckpointGate.jsx
-      SkillBadge.jsx
-      StatusDot.jsx
-      TokenBudgetBar.jsx             ← live cost vs budget, per-agent breakdown
-      VersionDiff.jsx
-    /hooks
-      useSession.js
-      useAgentStream.js              ← SSE connection, scoped to tenantId+sessionId
+  /cli
+    index.js                         ← commander.js entry point, installed as `glowing-spoon`
+    /commands
+      workspace.js                   ← workspace init, list
+      session.js                     ← session start, status, stop
+      plan.js                        ← plan view, approve, reject
+      approve.js                     ← approve current checkpoint
+      reject.js                      ← reject checkpoint with feedback
+      respond.js                     ← send message to Agent PM
 
   /engine
     agent-pm.js                      ← orchestrator, session brain
-    session.js
+    session.js                       ← session lifecycle management
     context-loader.js
     quality-gate.js
     skill-resolver.js
@@ -98,25 +88,14 @@ function getWorkspacePath(tenantId, projectId) {
   /utils
     claude.js                        ← ONLY file that calls Anthropic API
     workspace.js
-    streamer.js
+    output.js                        ← chalk-based stdout writer (replaces streamer)
     token-counter.js
     cost-tracker.js
     file-validator.js
     logger.js                        ← structured logs always include tenantId
 
-  /server
-    index.js
-    /middleware
-      auth.js                        ← hardcode tenantId="local" for MVP
-      tenant-scope.js
-    /routes
-      session.js
-      agents.js
-      workspace.js
-      events.js                      ← SSE endpoint
-
   /store
-    memory-store.js                  ← MVP: in-memory, namespaced by tenantId
+    file-store.js                    ← reads/writes session state to disk (replaces memory-store)
     session-schema.js
 
   /test
@@ -143,29 +122,27 @@ Follow exactly. Read the referenced guardrails file before building each step.
 3.  utils/errors.js                  → guardrails/error-taxonomy.md
 4.  utils/token-counter.js
 5.  utils/cost-tracker.js            → guardrails/cost-management.md
-6.  utils/streamer.js                → guardrails/infrastructure.md
-7.  utils/workspace.js               → guardrails/workspace.md
-8.  utils/claude.js                  → guardrails/context-injection.md
-9.  utils/file-validator.js          → guardrails/quality-gate.md
-10. engine/output-store.js           → guardrails/output-versioning.md
-11. engine/skill-resolver.js         → guardrails/skill-system.md
-12. engine/quality-gate.js           → guardrails/quality-gate.md
-13. agents/spec-agent/index.js
+6.  utils/output.js                  → guardrails/infrastructure.md
+7.  store/file-store.js              → guardrails/infrastructure.md
+8.  utils/workspace.js               → guardrails/workspace.md
+9.  utils/claude.js                  → guardrails/context-injection.md
+10. utils/file-validator.js          → guardrails/quality-gate.md
+11. engine/output-store.js           → guardrails/output-versioning.md
+12. engine/skill-resolver.js         → guardrails/skill-system.md
+13. engine/quality-gate.js           → guardrails/quality-gate.md
+14. agents/spec-agent/index.js
 
     → TEST: see guardrails/testing.md
 
-14. agents/dev-agent/index.js
-15. agents/review-agent/index.js
-16. agents/qa-agent/index.js
-17. engine/agent-pm.js               → guardrails/agent-pm.md
-18. store/memory-store.js
-19. server/middleware/auth.js
-20. server/index.js + all routes     → guardrails/workspace.md, guardrails/infrastructure.md
-21. UI: WorkspaceSelector
-22. UI: AgentFeed + AttentionQueue   → guardrails/error-taxonomy.md
-23. UI: PlanReview                   → guardrails/agent-pipeline.md
-24. UI: QualityPanel + OutputViewer + VersionDiff
-25. UI: TokenBudgetBar               → guardrails/cost-management.md
+15. agents/dev-agent/index.js
+16. agents/review-agent/index.js
+17. agents/qa-agent/index.js
+18. engine/agent-pm.js               → guardrails/agent-pm.md
+19. cli/commands/workspace.js        → guardrails/cli.md
+20. cli/commands/session.js          → guardrails/cli.md
+21. cli/commands/plan.js             → guardrails/cli.md
+22. cli/commands/approve.js + reject.js + respond.js
+23. cli/index.js                     ← wire all commands, register as `glowing-spoon`
 
     → TEST: see guardrails/testing.md
 ```
@@ -180,8 +157,9 @@ Copy `.env.example` to `.env` and fill in values. `.env` is gitignored — never
 
 ## What NOT to Build in MVP
 
+- No UI of any kind
 - No real auth (tenantId hardcoded to `"local"`)
-- No database (memory store only)
+- No database (file-based state only)
 - No cloud storage, no parallelism, no GitHub, no Figma MCP
 
 Design every interface as if these exist. The seams are already in the architecture.
@@ -191,7 +169,7 @@ Design every interface as if these exist. The seams are already in the architect
 ## Phase Roadmap
 
 ```
-Phase 1: Local MVP — one PM, memory store, local file system  ← BUILD THIS
+Phase 1: Local MVP — CLI, file-based state, local file system  ← BUILD THIS
 Phase 2: Multi-user — Clerk auth, Postgres sessions
 Phase 3: SaaS — S3 per-tenant storage, stateless server
 Phase 4: GitHub integration, parallel agents, Figma MCP

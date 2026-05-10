@@ -1,53 +1,111 @@
-# Infrastructure: Streamer & SSE
+# Infrastructure: Output Writer & File Store
 
-## Streamer (utils/streamer.js)
+## Output Writer (utils/output.js)
 
-EventEmitter MVP behind a stable interface — Phase 2 can swap in Redis without touching any caller.
+Replaces the streamer. All agent output goes to stdout via chalk. No SSE, no server.
 
 ```javascript
-import { EventEmitter } from "events";
+import chalk from "chalk";
 
-const bus = new EventEmitter();
-bus.setMaxListeners(100);  // one per open SSE connection
+const PREFIX = {
+  "agent-pm":     chalk.cyan("[agent-pm]"),
+  "spec-agent":   chalk.blue("[spec-agent]"),
+  "dev-agent":    chalk.green("[dev-agent]"),
+  "review-agent": chalk.magenta("[review-agent]"),
+  "qa-agent":     chalk.yellow("[qa-agent]"),
+  "docs-agent":   chalk.white("[docs-agent]"),
+  "quality":      chalk.blue("[quality]"),
+  "cost":         chalk.gray("[cost]"),
+  "session":      chalk.white("[session]"),
+};
 
-function key(tenantId, sessionId) { return `${tenantId}:${sessionId}`; }
-
-export function emit(tenantId, sessionId, event) {
-  bus.emit(key(tenantId, sessionId), event);
+export function log(agentId, message) {
+  console.log(`${PREFIX[agentId] ?? chalk.white(`[${agentId}]`)}  ${message}`);
 }
 
-export function subscribe(tenantId, sessionId, cb) {
-  const k = key(tenantId, sessionId);
-  bus.on(k, cb);
-  return () => bus.off(k, cb);  // caller holds this and invokes on SSE close
+export function pending(message) {
+  console.log(chalk.yellow(`\n[PENDING]  ${message}`));
 }
 
-// Phase 2 swap: replace emit/subscribe bodies with Redis pub/sub.
-// Interface stays identical — zero callers change.
+export function warn(message) {
+  console.log(chalk.yellow(`[WARN]     ${message}`));
+}
+
+export function error(message) {
+  console.log(chalk.red(`[ERROR]    ${message}`));
+}
+
+export function blocked(message) {
+  console.log(chalk.red(`\n[BLOCKED]  ${message}`));
+}
+
+export function success(message) {
+  console.log(chalk.green(`[✓]        ${message}`));
+}
+
+export function cost({ agentId, callCost, sessionTotal, budget }) {
+  const pct = Math.round((sessionTotal / budget) * 100);
+  const color = pct >= 80 ? chalk.red : pct >= 60 ? chalk.yellow : chalk.gray;
+  console.log(color(`[cost]     $${callCost.toFixed(4)} this call | $${sessionTotal.toFixed(4)} session total (${pct}% of $${budget} budget)`));
+}
+
+// Streaming chunks from Claude — write without newline, flush on complete
+export function chunk(agentId, text) {
+  process.stdout.write(text);
+}
 ```
 
-## SSE Endpoint (server/routes/events.js)
+## File Store (store/file-store.js)
 
-Every SSE connection is validated against tenantId. Cross-tenant leakage is structurally impossible.
+Replaces memory-store. State is written to disk on every change so separate CLI commands can read it.
 
 ```javascript
-router.get('/events/:sessionId', authMiddleware, async (req, res) => {
-  const { tenantId } = req.tenant;
-  const { sessionId } = req.params;
+import fs from "fs/promises";
+import path from "path";
+import { getWorkspacePath } from "../utils/workspace.js";
 
-  const session = await store.getSession(sessionId);
-  if (!session || session.tenantId !== tenantId) {
-    return res.status(403).json({ error: "Forbidden" });
+function sessionPath(tenantId, projectId) {
+  return path.join(getWorkspacePath(tenantId, projectId), '.session.json');
+}
+
+export async function saveSession(session) {
+  const p = sessionPath(session.tenantId, session.projectId);
+  session.updatedAt = Date.now();
+  await fs.writeFile(p, JSON.stringify(session, null, 2));
+}
+
+export async function getSession(tenantId, projectId) {
+  try {
+    const raw = await fs.readFile(sessionPath(tenantId, projectId), 'utf8');
+    return JSON.parse(raw);
+  } catch {
+    return null;
   }
+}
 
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
+export async function writePending(tenantId, projectId, pending) {
+  const p = path.join(getWorkspacePath(tenantId, projectId), '.pending.json');
+  await fs.writeFile(p, JSON.stringify(pending, null, 2));
+}
 
-  const unsubscribe = streamer.subscribe(tenantId, sessionId, (event) => {
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
+export async function pollResponse(tenantId, projectId, intervalMs = 2000) {
+  const p = path.join(getWorkspacePath(tenantId, projectId), '.response.json');
+  return new Promise((resolve) => {
+    const interval = setInterval(async () => {
+      try {
+        const raw = await fs.readFile(p, 'utf8');
+        const response = JSON.parse(raw);
+        clearInterval(interval);
+        await fs.unlink(p);
+        await fs.unlink(path.join(getWorkspacePath(tenantId, projectId), '.pending.json')).catch(() => {});
+        resolve(response);
+      } catch { /* file not yet written */ }
+    }, intervalMs);
   });
+}
 
-  req.on('close', unsubscribe);
-});
+export async function writeResponse(tenantId, projectId, response) {
+  const p = path.join(getWorkspacePath(tenantId, projectId), '.response.json');
+  await fs.writeFile(p, JSON.stringify(response, null, 2));
+}
 ```

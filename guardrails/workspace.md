@@ -32,14 +32,14 @@ Resolved at runtime from tenantId + projectId. Never hardcoded.
     {sessionId}.json               ← full session record, append-only log
 ```
 
-## POST /workspace/init
+## glowing-spoon workspace init
 
-Workspaces are never created manually. `WorkspaceSelector.jsx` calls this when no workspace exists.
+Workspaces are never created manually. Run `glowing-spoon workspace init` to scaffold one.
 
 ```javascript
-router.post('/workspace/init', authMiddleware, async (req, res) => {
-  const { tenantId } = req.tenant;
-  const { projectId, productName, description, techStack } = req.body;
+// cli/commands/workspace.js — init action
+export async function initWorkspace({ projectId, productName, description, techStack }) {
+  const tenantId = "local";  // MVP hardcoded
   const workspacePath = getWorkspacePath(tenantId, projectId);
 
   await fs.mkdir(path.join(workspacePath, 'specs'),                { recursive: true });
@@ -60,8 +60,9 @@ router.post('/workspace/init', authMiddleware, async (req, res) => {
     await fs.readFile(path.join(process.cwd(), 'defaults', 'agent-pm-prompt.md'), 'utf8')
   );
 
-  res.json({ workspacePath, projectId, tenantId });
-});
+  output.success(`Workspace created at ${workspacePath}`);
+  output.log('session', 'Fill in context-vault/ files before starting a session.');
+}
 ```
 
 ## Vault File Size Limits (utils/workspace.js)

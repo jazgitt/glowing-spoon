@@ -1,12 +1,12 @@
-# Agent Pipeline & UI Interaction
+# Agent Pipeline & CLI Interaction
 
 ## Sequential Pipeline (MVP)
 
 **Phase 0 — Workspace Load**
-Validate tenant workspace → snapshot skill versions → confirm to UI → status: `planning`
+Validate tenant workspace → snapshot skill versions → log to stdout → status: `planning`
 
 **Phase 1 — Agent PM Plans**
-`agentPM.plan()` → UI shows in `PlanReview.jsx` → PM approves or gives feedback → `agentPM.revisePlan(feedback)` → loop until approved → status: `executing`
+`agentPM.plan()` → plan printed to stdout → write `.pending.json` (type: `plan-approval`) → log `[PENDING] Plan ready. Run: glowing-spoon plan view` → poll `.response.json` → PM approves or rejects with feedback → `agentPM.revisePlan(feedback)` → loop until approved → status: `executing`
 
 **Phase 2 — Spec Agent**
 Agent PM feeds stories → Spec Agent resolves skills → refines stories + writes acceptance criteria → quality gate → pass or retry (max 2) → version saved → Agent PM updates history
@@ -20,19 +20,32 @@ Agent PM feeds spec + validated code → QA Agent generates tests → quality ga
 **Phase 5 — Docs Agent**
 Agent PM feeds spec + code + tests → Docs Agent generates docs → version saved
 
-**Phase 6 — Human Checkpoint (BLOCKING)**
-`AttentionQueue` shows summary → PM reviews all versions, scores, diffs → Approve (promote /current, complete) or Reject with feedback (Agent PM re-routes from appropriate step)
+**Phase 6 — Final Checkpoint (BLOCKING)**
+Summary printed to stdout → write `.pending.json` (type: `checkpoint`) → log `[PENDING] Session complete. Review output then run: glowing-spoon approve` → poll `.response.json` → Approve (promote /current, complete) or Reject with feedback (Agent PM re-routes from appropriate step)
 
-## UI Interaction Model
+## PM Interaction via CLI
 
-Both modes always available simultaneously. They share `pmFeedback` history.
+PM can interact at any point using separate commands. Session polls for responses when blocked.
 
-**Mode 1 — Step Approval**
-Agent completes → `CheckpointGate.jsx` → PM clicks Approve or Reject+feedback → pipeline continues or retries.
+**Approvals**
+```bash
+glowing-spoon plan view            # prints current plan from .session.json
+glowing-spoon plan approve         # writes { action: "approve" } to .response.json
+glowing-spoon plan reject --feedback "split the auth story into two"
+glowing-spoon approve              # approve current checkpoint
+glowing-spoon reject --feedback "the test coverage is too low"
+```
 
-**Mode 2 — Inline Chat**
-PM types freely at any point → Agent PM classifies intent:
+**Inline messages to Agent PM** (question / scope change / feedback on current agent)
+```bash
+glowing-spoon respond --message "skip the password reset story for now"
+```
+Agent PM classifies intent:
 - Feedback on current agent → retry with feedback
-- Scope change → `agentPM.handleScopeChange()` → re-plan
-- Question → `agentPM.answerQuestion()` → responds without affecting pipeline
-- "Stop" or "Pause" → session paused, full state preserved
+- Scope change → `agentPM.handleScopeChange()` → re-plans
+- Question → `agentPM.answerQuestion()` → response printed to stdout, pipeline unaffected
+
+**Session visibility**
+```bash
+glowing-spoon session status       # current step, pending items, cost so far, agent scores
+```

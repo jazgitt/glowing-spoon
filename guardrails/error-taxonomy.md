@@ -1,4 +1,4 @@
-# Error Taxonomy & Event Model
+# Error Taxonomy & Output Events
 
 ## ErrorTypes (utils/errors.js)
 
@@ -10,7 +10,7 @@ export const ErrorTypes = {
     code: "SYNTAX_ERROR",
     recovery: "retry-dev-agent-with-error-location",
     maxRetries: 2,
-    notifyPM: false,
+    notifyPM: false,       // auto-recovers silently; logged to stdout as [ERROR]
   },
   QUALITY_GATE_FAIL: {
     code: "QUALITY_GATE_FAIL",
@@ -23,7 +23,7 @@ export const ErrorTypes = {
     recovery: "escalate-to-pm",
     maxRetries: 0,
     notifyPM: true,
-    attention: "BLOCKING",
+    attention: "BLOCKING",  // writes .pending.json; logs [BLOCKED] to stdout
   },
   AMBIGUITY_UNRESOLVABLE: {
     code: "AMBIGUITY_UNRESOLVABLE",
@@ -37,7 +37,7 @@ export const ErrorTypes = {
     recovery: "split-task-and-retry",
     maxRetries: 1,
     notifyPM: true,
-    attention: "WARNING",
+    attention: "WARNING",   // logs [WARN] to stdout; does not block
   },
   API_ERROR: {
     code: "API_ERROR",
@@ -48,28 +48,17 @@ export const ErrorTypes = {
 };
 ```
 
-## PM Attention Model — Two Event Tiers
+## Output Levels (via utils/output.js)
 
-Tier 1 → `AgentFeed.jsx` (informational scroll). Tier 2 → `AttentionQueue.jsx` (requires PM action, blocks pipeline).
+| Level | CLI prefix | When |
+|---|---|---|
+| Info | `[agent-id]` | Normal agent activity, streamed output |
+| Cost | `[cost]` | After every Claude call |
+| Warning | `[WARN]` | Token budget >80%, vault size exceeded — pipeline continues |
+| Error | `[ERROR]` | Auto-recoverable failures (syntax error, quality retry) |
+| Blocked | `[BLOCKED]` | Pipeline paused; PM must respond via CLI command |
+| Pending | `[PENDING]` | Awaiting PM input; prints the command to run |
+| Success | `[✓]` | Step or session complete |
 
-```javascript
-// Tier 1 — informational, no PM action needed
-{ type: "agent:start",    tier: 1, agent, step }
-{ type: "agent:thinking", tier: 1, agent, chunk }
-{ type: "agent:output",   tier: 1, agent, content, version }
-{ type: "agent:score",    tier: 1, agent, scores }
-{ type: "agent:retry",    tier: 1, agent, reason, attempt }
-{ type: "token:usage",    tier: 1, agent, tokensUsed, budget }
-{ type: "version:saved",  tier: 1, agent, version, files }
-
-// Tier 2 — requires PM action, pipeline pauses until resolved
-{ type: "checkpoint",       tier: 2, attention: "BLOCKING", summary, actions: ["approve","reject"] }
-{ type: "agent:escalated",  tier: 2, attention: "BLOCKING", agent, failureType, diagnosis }
-{ type: "ambiguity:found",  tier: 2, attention: "BLOCKING", agent, question, context }
-{ type: "quality:failed",   tier: 2, attention: "BLOCKING", agent, scores, suggestion }
-{ type: "token:critical",   tier: 2, attention: "WARNING",  agent, message }
-
-// Session events
-{ type: "session:complete" }
-{ type: "session:error", failureType, message, recoverable }
-```
+`notifyPM: true` + `attention: "BLOCKING"` → writes `.pending.json` AND logs `[BLOCKED]` + the command to run.
+`notifyPM: true` + `attention: "WARNING"` → logs `[WARN]` only; pipeline does not pause.
