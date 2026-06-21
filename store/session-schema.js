@@ -22,14 +22,12 @@ export function createSession({ tenantId, projectId, costBudget = 5.00, dryRun =
     completedSteps: [],
 
     agents: {
-      'spec-agent':   { status: 'idle', currentVersion: 0, retryCount: 0, scores: [], skillsLoaded: [] },
-      'dev-agent':    { status: 'idle', currentVersion: 0, retryCount: 0, scores: [], skillsLoaded: [] },
-      'review-agent': { status: 'idle', currentVersion: 0, retryCount: 0, scores: [], skillsLoaded: [] },
-      'qa-agent':     { status: 'idle', currentVersion: 0, retryCount: 0, scores: [], skillsLoaded: [] },
-      'docs-agent':   { status: 'idle', currentVersion: 0, retryCount: 0, scores: [], skillsLoaded: [] },
+      'spec-agent':   { status: 'idle', retryCount: 0, scores: [], skillsLoaded: [] },
+      'dev-agent':    { status: 'idle', retryCount: 0, scores: [], skillsLoaded: [] },
+      'review-agent': { status: 'idle', retryCount: 0, scores: [], skillsLoaded: [] },
+      'qa-agent':     { status: 'idle', retryCount: 0, scores: [], skillsLoaded: [] },
+      'docs-agent':   { status: 'idle', retryCount: 0, scores: [], skillsLoaded: [] },
     },
-
-    skillVersionSnapshot: {},
 
     pmFeedback: [],
     attentionQueue: [],

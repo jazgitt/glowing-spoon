@@ -3,7 +3,6 @@ import { runDevAgent } from '../agents/dev-agent/index.js';
 import { runReviewAgent } from '../agents/review-agent/index.js';
 import { runQAAgent } from '../agents/qa-agent/index.js';
 import { runDocsAgent } from '../agents/docs-agent/index.js';
-import { promoteToCurrentVersion } from './output-store.js';
 import {
   setSessionStatus, recordAgentStart, recordAgentComplete, recordAgentRetry,
   addToAttentionQueue, syncAgentPMHistory, setPipelineCursor, archiveSession, shouldStop,
@@ -208,22 +207,14 @@ async function runStoryPipeline(session, agentPM, story, storyIndex, resumeAtChe
     });
     if (!devOutput) return;
 
-    if (devOutput.version) {
-      await promoteToCurrentVersion({
-        tenantId: session.tenantId, projectId: session.projectId, version: devOutput.version,
-      });
-    }
-
     const codeInput = sanitizeAgentOutput(devOutput.outputText);
-    await setPipelineCursor(session, storyIndex, 'checkpoint', {
-      devInput, codeInput, version: devOutput.version,
-    });
+    await setPipelineCursor(session, storyIndex, 'checkpoint', { devInput, codeInput });
 
     // --- Checkpoint ---
-    const approved = await runCheckpoint(session, agentPM, story, storyIndex, devInput, codeInput, devOutput.version, taskDescription);
+    const approved = await runCheckpoint(session, agentPM, story, storyIndex, devInput, codeInput, taskDescription);
     if (!approved) return;
 
-    // Advance cursor BEFORE review/qa/docs — crash here = skip to next story (safe; dev output versioned).
+    // Advance cursor BEFORE review/qa/docs — crash here = skip to next story (safe).
     await setPipelineCursor(session, storyIndex + 1, 'spec', null);
     await runReviewQaDocs(session, agentPM, story, devInput, codeInput);
 
@@ -236,7 +227,7 @@ async function runStoryPipeline(session, agentPM, story, storyIndex, resumeAtChe
       return runStoryPipeline(session, agentPM, story, storyIndex, false);
     }
 
-    const approved = await runCheckpoint(session, agentPM, story, storyIndex, cp.devInput, cp.codeInput, cp.version, taskDescription);
+    const approved = await runCheckpoint(session, agentPM, story, storyIndex, cp.devInput, cp.codeInput, taskDescription);
     if (!approved) return;
 
     await setPipelineCursor(session, storyIndex + 1, 'spec', null);
@@ -244,22 +235,20 @@ async function runStoryPipeline(session, agentPM, story, storyIndex, resumeAtChe
   }
 }
 
-// Checkpoint pause: show dev output location, wait for PM approval.
+// Checkpoint pause: wait for PM approval before running review/qa/docs.
 // On reject: re-run dev with feedback, then recurse back to checkpoint.
-async function runCheckpoint(session, agentPM, story, storyIndex, devInput, codeInput, version, taskDescription) {
+async function runCheckpoint(session, agentPM, story, storyIndex, devInput, codeInput, taskDescription) {
   await processInbox(session, agentPM);
 
   out.divider();
   out.header('Dev Agent Complete — Code Ready for Review');
   out.log('checkpoint', `Story: ${story.title ?? taskDescription}`);
-  if (version) {
-    out.log('checkpoint', `v${version} at: workspaces/${session.tenantId}/${session.projectId}/output/versions/v${version}`);
-  }
+  out.log('checkpoint', `Output at: workspaces/${session.tenantId}/${session.projectId}/output/`);
   out.pending(`Approve: glowing-spoon approve --session ${session.sessionId}`);
   out.pending(`Reject:  glowing-spoon reject --session ${session.sessionId} --feedback "what to change"`);
 
   await writePending(session.tenantId, session.projectId, {
-    type: 'checkpoint', stage: 'dev-complete', storyIndex, version,
+    type: 'checkpoint', stage: 'dev-complete', storyIndex,
   });
 
   let response;
@@ -288,17 +277,9 @@ async function runCheckpoint(session, agentPM, story, storyIndex, devInput, code
       handleSyntaxErrors: true,
     });
     if (!reDevOutput) return false;
-    if (reDevOutput.version) {
-      await promoteToCurrentVersion({
-        tenantId: session.tenantId, projectId: session.projectId, version: reDevOutput.version,
-      });
-    }
     const newCodeInput = sanitizeAgentOutput(reDevOutput.outputText);
-    await setPipelineCursor(session, storyIndex, 'checkpoint', {
-      devInput, codeInput: newCodeInput, version: reDevOutput.version,
-    });
-    // Re-prompt after revised dev output.
-    return runCheckpoint(session, agentPM, story, storyIndex, devInput, newCodeInput, reDevOutput.version, taskDescription);
+    await setPipelineCursor(session, storyIndex, 'checkpoint', { devInput, codeInput: newCodeInput });
+    return runCheckpoint(session, agentPM, story, storyIndex, devInput, newCodeInput, taskDescription);
   }
 
   return true;
@@ -360,10 +341,10 @@ async function runAgentWithRetry({ agentId, session, agentFn, handleSyntaxErrors
       return null;
     }
 
-    const { gateResult, version } = result;
+    const { gateResult } = result;
 
     if (!gateResult || gateResult.action === 'pass') {
-      await recordAgentComplete(session, agentId, version, gateResult?.scores);
+      await recordAgentComplete(session, agentId, gateResult?.scores);
       return result;
     }
 

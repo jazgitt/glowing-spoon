@@ -12,7 +12,7 @@ export async function runDocsAgent({ session, spec, code, tests, pmFeedback = []
 
   const skillFilenames = await resolveSkills(AGENT_ID, spec, session);
   session.agents[AGENT_ID].skillsLoaded = skillFilenames;
-  const skillContent = await loadSkillContents(AGENT_ID, skillFilenames, session.skillVersionSnapshot);
+  const skillContent = await loadSkillContents(AGENT_ID, skillFilenames);
 
   const feedbackSection = pmFeedback.length > 0
     ? `\n\n## Previous Feedback\n${pmFeedback.join('\n')}`
@@ -48,16 +48,8 @@ export async function runDocsAgent({ session, spec, code, tests, pmFeedback = []
     files.push({ relativePath: 'docs/README.md', content: outputText });
   }
 
-  const { version } = await saveAgentOutput({
-    tenantId: session.tenantId,
-    projectId: session.projectId,
-    sessionId: session.sessionId,
-    agentId: AGENT_ID,
-    files,
-    trigger: pmFeedback.length > 0 ? 'retry' : 'initial',
-  });
-
-  out.log(AGENT_ID, `Docs saved as v${version}`);
+  await saveAgentOutput({ tenantId: session.tenantId, projectId: session.projectId, files });
+  out.log(AGENT_ID, `Docs saved`);
 
   const gateResult = await runQualityGate({
     agentId: AGENT_ID,
@@ -66,5 +58,5 @@ export async function runDocsAgent({ session, spec, code, tests, pmFeedback = []
     session,
   });
 
-  return { outputText, files, version, gateResult };
+  return { outputText, files, gateResult };
 }

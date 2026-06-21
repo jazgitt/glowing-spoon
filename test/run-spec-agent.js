@@ -7,7 +7,7 @@ import 'dotenv/config';
 import { parseArgs } from 'node:util';
 import { config } from '../utils/config.js';
 import { createSession } from '../store/session-schema.js';
-import { snapshotSkillVersions, validateWorkspace } from '../utils/workspace.js';
+import { validateWorkspace } from '../utils/workspace.js';
 import { runSpecAgent } from '../agents/spec-agent/index.js';
 import * as out from '../utils/output.js';
 
@@ -37,8 +37,6 @@ try {
     dryRun: values['dry-run'],
   });
 
-  session.skillVersionSnapshot = await snapshotSkillVersions(values.tenant, values.project);
-
   out.divider();
   const result = await runSpecAgent({
     session,
@@ -47,7 +45,6 @@ try {
 
   out.divider();
   out.header('Result');
-  out.log('test', `Version: v${result.version}`);
   out.log('test', `Files: ${result.files.map(f => f.relativePath).join(', ')}`);
   out.log('test', `Quality gate: ${result.gateResult?.action ?? 'n/a'} | overall: ${result.gateResult?.overall ?? 'n/a'}`);
 
@@ -56,7 +53,7 @@ try {
   }
 
   out.divider();
-  out.success(`Spec agent test complete. Output at: workspaces/${values.tenant}/${values.project}/output/versions/v${result.version}/`);
+  out.success(`Spec agent test complete. Output at: workspaces/${values.tenant}/${values.project}/output/`);
 } catch (err) {
   out.error(`Spec agent test failed: ${err.message}`);
   if (process.env.GLOWING_DEBUG) console.error(err);

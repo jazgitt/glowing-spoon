@@ -13,12 +13,10 @@ async function listSkills(agentId) {
     for (const file of files.filter(f => f.endsWith('.md'))) {
       const content = await fs.readFile(path.join(skillsDir, file), 'utf8');
       const skillMatch = content.match(/^skill:\s*(.+)$/m);
-      const versionMatch = content.match(/^version:\s*(.+)$/m);
       const whenMatch = content.match(/## When to invoke\n([\s\S]*?)(?=\n##|$)/);
       skills.push({
         filename: file,
         skill: skillMatch?.[1]?.trim() ?? file,
-        version: versionMatch?.[1]?.trim() ?? '1.0',
         when: whenMatch?.[1]?.trim() ?? '',
       });
     }
@@ -29,7 +27,7 @@ async function listSkills(agentId) {
 }
 
 // Loads the full content of specific skill files.
-export async function loadSkillContents(agentId, skillFilenames, snapshot = {}) {
+export async function loadSkillContents(agentId, skillFilenames) {
   const skillsDir = path.join(AGENTS_DIR, agentId, 'skills');
   const contents = [];
   for (const filename of skillFilenames) {

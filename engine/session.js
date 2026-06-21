@@ -5,7 +5,7 @@ import {
   saveSession, getSession, lookupSession, updateAgentPMHistory,
   checkStopFlag, clearStopFlag,
 } from '../store/file-store.js';
-import { validateWorkspace, snapshotSkillVersions, getWorkspacePath } from '../utils/workspace.js';
+import { validateWorkspace, getWorkspacePath } from '../utils/workspace.js';
 import { loadProductMd } from './context-loader.js';
 import * as out from '../utils/output.js';
 
@@ -13,8 +13,6 @@ export async function initSession({ tenantId, projectId, costBudget, dryRun = fa
   await validateWorkspace(tenantId, projectId);
 
   const session = createSession({ tenantId, projectId, costBudget, dryRun });
-  const skillSnapshot = await snapshotSkillVersions(tenantId, projectId);
-  session.skillVersionSnapshot = skillSnapshot;
   session.status = 'planning';
 
   const product = await loadProductMd(tenantId, projectId);
@@ -56,11 +54,10 @@ export async function recordAgentStart(session, agentId) {
   await updateSession(session);
 }
 
-export async function recordAgentComplete(session, agentId, version, scores) {
+export async function recordAgentComplete(session, agentId, scores) {
   session.agents[agentId].status = 'idle';
-  session.agents[agentId].currentVersion = version;
   if (scores) session.agents[agentId].scores.push(scores);
-  session.completedSteps.push({ agentId, version, timestamp: Date.now() });
+  session.completedSteps.push({ agentId, timestamp: Date.now() });
   await updateSession(session);
 }
 

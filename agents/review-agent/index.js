@@ -12,7 +12,7 @@ export async function runReviewAgent({ session, code, spec, pmFeedback = [] }) {
 
   const skillFilenames = await resolveSkills(AGENT_ID, spec, session);
   session.agents[AGENT_ID].skillsLoaded = skillFilenames;
-  const skillContent = await loadSkillContents(AGENT_ID, skillFilenames, session.skillVersionSnapshot);
+  const skillContent = await loadSkillContents(AGENT_ID, skillFilenames);
 
   const feedbackSection = pmFeedback.length > 0
     ? `\n\n## Previous Feedback\n${pmFeedback.join('\n')}`
@@ -45,16 +45,8 @@ export async function runReviewAgent({ session, code, spec, pmFeedback = [] }) {
     files.push({ relativePath: 'review/findings.md', content: outputText });
   }
 
-  const { version } = await saveAgentOutput({
-    tenantId: session.tenantId,
-    projectId: session.projectId,
-    sessionId: session.sessionId,
-    agentId: AGENT_ID,
-    files,
-    trigger: pmFeedback.length > 0 ? 'retry' : 'initial',
-  });
-
-  out.log(AGENT_ID, `Review saved as v${version}`);
+  await saveAgentOutput({ tenantId: session.tenantId, projectId: session.projectId, files });
+  out.log(AGENT_ID, `Review saved`);
 
   const gateResult = await runQualityGate({
     agentId: AGENT_ID,
@@ -63,5 +55,5 @@ export async function runReviewAgent({ session, code, spec, pmFeedback = [] }) {
     session,
   });
 
-  return { outputText, files, version, gateResult };
+  return { outputText, files, gateResult };
 }

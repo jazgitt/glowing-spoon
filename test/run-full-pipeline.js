@@ -13,7 +13,6 @@ import { runDevAgent } from '../agents/dev-agent/index.js';
 import { runReviewAgent } from '../agents/review-agent/index.js';
 import { runQAAgent } from '../agents/qa-agent/index.js';
 import { runDocsAgent } from '../agents/docs-agent/index.js';
-import { promoteToCurrentVersion } from '../engine/output-store.js';
 import { getSession } from '../store/file-store.js';
 import * as out from '../utils/output.js';
 
@@ -68,7 +67,7 @@ try {
   // Spec
   out.log('test', '--- Spec Agent ---');
   const specResult = await runSpecAgent({ session, taskDescription });
-  out.log('test', `Spec: v${specResult.version} | gate: ${specResult.gateResult?.action}`);
+  out.log('test', `Spec: gate: ${specResult.gateResult?.action}`);
 
   // Dev
   out.log('test', '--- Dev Agent ---');
@@ -77,27 +76,22 @@ try {
     refinedSpec: specResult.outputText,
     taskDescription: story.title || taskDescription,
   });
-  out.log('test', `Dev: v${devResult.version} | gate: ${devResult.gateResult?.action} | syntax errors: ${devResult.syntaxErrors?.length ?? 0}`);
-
-  if (devResult.version) {
-    await promoteToCurrentVersion({ tenantId: values.tenant, projectId: values.project, version: devResult.version });
-    out.log('test', `Promoted v${devResult.version} to current`);
-  }
+  out.log('test', `Dev: gate: ${devResult.gateResult?.action} | syntax errors: ${devResult.syntaxErrors?.length ?? 0}`);
 
   // Review
   out.log('test', '--- Review Agent ---');
   const reviewResult = await runReviewAgent({ session, code: devResult.outputText, spec: specResult.outputText });
-  out.log('test', `Review: v${reviewResult.version} | gate: ${reviewResult.gateResult?.action}`);
+  out.log('test', `Review: gate: ${reviewResult.gateResult?.action}`);
 
   // QA
   out.log('test', '--- QA Agent ---');
   const qaResult = await runQAAgent({ session, spec: specResult.outputText, code: devResult.outputText });
-  out.log('test', `QA: v${qaResult.version} | gate: ${qaResult.gateResult?.action}`);
+  out.log('test', `QA: gate: ${qaResult.gateResult?.action}`);
 
   // Docs
   out.log('test', '--- Docs Agent ---');
   const docsResult = await runDocsAgent({ session, spec: specResult.outputText, code: devResult.outputText, tests: qaResult.outputText });
-  out.log('test', `Docs: v${docsResult.version} | gate: ${docsResult.gateResult?.action}`);
+  out.log('test', `Docs: gate: ${docsResult.gateResult?.action}`);
 
   const finalSession = await getSession(values.tenant, values.project);
   out.divider();

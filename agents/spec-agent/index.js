@@ -16,7 +16,7 @@ export async function runSpecAgent({ session, taskDescription, pmFeedback = [] }
 
   const skillFilenames = await resolveSkills(AGENT_ID, taskDescription, session);
   session.agents[AGENT_ID].skillsLoaded = skillFilenames;
-  const skillContent = await loadSkillContents(AGENT_ID, skillFilenames, session.skillVersionSnapshot);
+  const skillContent = await loadSkillContents(AGENT_ID, skillFilenames);
 
   const feedbackSection = pmFeedback.length > 0
     ? `\n\n## Previous Feedback\n${pmFeedback.join('\n')}`
@@ -50,16 +50,8 @@ export async function runSpecAgent({ session, taskDescription, pmFeedback = [] }
     files.push({ relativePath: 'specs/refined-spec.md', content: outputText });
   }
 
-  const { version } = await saveAgentOutput({
-    tenantId: session.tenantId,
-    projectId: session.projectId,
-    sessionId: session.sessionId,
-    agentId: AGENT_ID,
-    files,
-    trigger: pmFeedback.length > 0 ? 'retry' : 'initial',
-  });
-
-  out.log(AGENT_ID, `Output saved as v${version}`);
+  await saveAgentOutput({ tenantId: session.tenantId, projectId: session.projectId, files });
+  out.log(AGENT_ID, `Output saved`);
 
   const gateResult = await runQualityGate({
     agentId: AGENT_ID,
@@ -68,5 +60,5 @@ export async function runSpecAgent({ session, taskDescription, pmFeedback = [] }
     session,
   });
 
-  return { outputText, files, version, gateResult };
+  return { outputText, files, gateResult };
 }

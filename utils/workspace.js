@@ -127,29 +127,3 @@ export async function loadProductMd(tenantId, projectId) {
   }
 }
 
-const AGENTS_DIR = new URL('../agents', import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1');
-
-export async function snapshotSkillVersions(tenantId, projectId) {
-  const agentsDir = AGENTS_DIR;
-  const snapshot = {};
-  try {
-    const agents = await fs.readdir(agentsDir);
-    for (const agent of agents) {
-      const skillsDir = path.join(agentsDir, agent, 'skills');
-      try {
-        const skills = await fs.readdir(skillsDir);
-        for (const skill of skills.filter(s => s.endsWith('.md'))) {
-          const content = await fs.readFile(path.join(skillsDir, skill), 'utf8');
-          const versionMatch = content.match(/^version:\s*(.+)$/m);
-          const version = versionMatch ? versionMatch[1].trim() : '1.0';
-          snapshot[`${agent}/${skill}`] = version;
-        }
-      } catch {
-        // No skills dir
-      }
-    }
-  } catch {
-    // No agents dir
-  }
-  return snapshot;
-}
