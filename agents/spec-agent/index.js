@@ -1,5 +1,5 @@
 import { callClaude } from '../../utils/claude.js';
-import { loadSpecs } from '../../utils/workspace.js';
+import { loadSpecs } from '../../engine/context-loader.js';
 import { resolveSkills, loadSkillContents } from '../../engine/skill-resolver.js';
 import { runQualityGate } from '../../engine/quality-gate.js';
 import { saveAgentOutput, parseFilesFromOutput } from '../../engine/output-store.js';

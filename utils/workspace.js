@@ -107,7 +107,10 @@ export async function loadProductMd(tenantId, projectId) {
   }
 }
 
-export async function snapshotSkillVersions(agentsDir) {
+const AGENTS_DIR = new URL('../agents', import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1');
+
+export async function snapshotSkillVersions(tenantId, projectId) {
+  const agentsDir = AGENTS_DIR;
   const snapshot = {};
   try {
     const agents = await fs.readdir(agentsDir);

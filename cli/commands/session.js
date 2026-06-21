@@ -11,7 +11,7 @@ import {
   recordAgentStart, recordAgentComplete, recordAgentRetry,
   addToAttentionQueue, syncAgentPMHistory,
 } from '../../engine/session.js';
-import { writePending, pollResponse } from '../../store/file-store.js';
+import { writePending, pollResponse, getSession } from '../../store/file-store.js';
 import { config } from '../../utils/config.js';
 import * as out from '../../utils/output.js';
 
@@ -72,23 +72,79 @@ export function registerSessionCommands(program) {
         plan: planText,
       });
 
-      const pmResponse = await pollResponse(session.tenantId, session.projectId);
+      let pmResponse;
+      try {
+        pmResponse = await pollResponse(session.tenantId, session.projectId);
+      } catch (err) {
+        if (err.message === 'POLL_TIMEOUT') {
+          out.error('No PM response received within timeout. Session stopped.');
+          out.pending(`To resume: glowing-spoon approve --session ${session.sessionId}`);
+          await setSessionStatus(session, 'stopped');
+          return;
+        }
+        throw err;
+      }
 
       if (pmResponse.action === 'reject') {
         out.log('agent-pm', `PM feedback: ${pmResponse.feedback}`);
         const revisedPlanText = await agentPM.revisePlan(pmResponse.feedback);
         await syncAgentPMHistory(session, agentPM);
-        out.log('agent-pm', 'Plan revised. Starting execution...');
+
+        let revisedPlan;
+        try {
+          revisedPlan = JSON.parse(revisedPlanText.match(/\{[\s\S]*\}/)?.[0] ?? revisedPlanText);
+        } catch {
+          revisedPlan = { stories: [], sessionGoal: revisedPlanText };
+        }
+
+        out.divider();
+        out.header('Revised Plan');
+        if (revisedPlan.sessionGoal) out.log('plan', revisedPlan.sessionGoal);
+        if (revisedPlan.stories?.length > 0) {
+          revisedPlan.stories.forEach((s, i) => out.log('plan', `${i + 1}. [${s.complexity || '?'}] ${s.title || s.description}`));
+        } else {
+          out.log('plan', revisedPlanText.slice(0, 500));
+        }
+
+        out.divider();
+        out.pending('Waiting for PM approval of revised plan. Run: glowing-spoon approve --session ' + session.sessionId);
+
+        await writePending(session.tenantId, session.projectId, {
+          type: 'plan-approval',
+          plan: revisedPlanText,
+        });
+
+        let revisedResponse;
+        try {
+          revisedResponse = await pollResponse(session.tenantId, session.projectId);
+        } catch (err) {
+          if (err.message === 'POLL_TIMEOUT') {
+            out.error('No PM response received within timeout. Session stopped.');
+            await setSessionStatus(session, 'stopped');
+            return;
+          }
+          throw err;
+        }
+
+        if (revisedResponse.action === 'reject') {
+          out.error('Revised plan rejected. Session stopped. Update specs and re-run.');
+          await setSessionStatus(session, 'stopped');
+          return;
+        }
+
+        plan = revisedPlan;
       }
 
       // Phase 2: Execute pipeline
       await setSessionStatus(session, 'executing');
       await runPipeline(session, agentPM, plan);
 
-      // Final checkpoint
+      // Final checkpoint — reload session from disk to get accurate cost totals
+      const finalSession = await getSession(TENANT_ID, opts.project);
       out.divider();
       out.header('Session Complete');
       out.success(`All agents finished. Session ID: ${session.sessionId}`);
+      out.log('session', `Cost: $${finalSession?.tokenUsage?.total?.toFixed(4) ?? '0.0000'} of $${opts.budget}`);
       out.log('session', `Output at: workspaces/${TENANT_ID}/${opts.project}/output/`);
     });
 }

@@ -14,6 +14,7 @@ import { runReviewAgent } from '../agents/review-agent/index.js';
 import { runQAAgent } from '../agents/qa-agent/index.js';
 import { runDocsAgent } from '../agents/docs-agent/index.js';
 import { promoteToCurrentVersion } from '../engine/output-store.js';
+import { getSession } from '../store/file-store.js';
 import * as out from '../utils/output.js';
 
 const { values } = parseArgs({
@@ -98,9 +99,10 @@ try {
   const docsResult = await runDocsAgent({ session, spec: specResult.outputText, code: devResult.outputText, tests: qaResult.outputText });
   out.log('test', `Docs: v${docsResult.version} | gate: ${docsResult.gateResult?.action}`);
 
+  const finalSession = await getSession(values.tenant, values.project);
   out.divider();
   out.header('Pipeline Summary');
-  out.log('test', `Session cost: $${session.tokenUsage?.total?.toFixed(4) ?? '0.0000'} of $${values.budget}`);
+  out.log('test', `Session cost: $${finalSession?.tokenUsage?.total?.toFixed(4) ?? '0.0000'} of $${values.budget}`);
   out.log('test', `Output at: workspaces/${values.tenant}/${values.project}/output/`);
   out.success('Full pipeline test complete');
 

@@ -1,6 +1,7 @@
 import { createSession } from '../store/session-schema.js';
 import { saveSession, getSession, lookupSession, updateAgentPMHistory } from '../store/file-store.js';
-import { validateWorkspace, snapshotSkillVersions, loadProductMd } from '../utils/workspace.js';
+import { validateWorkspace, snapshotSkillVersions } from '../utils/workspace.js';
+import { loadProductMd } from './context-loader.js';
 import * as out from '../utils/output.js';
 
 export async function initSession({ tenantId, projectId, costBudget, dryRun = false }) {

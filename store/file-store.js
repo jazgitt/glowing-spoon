@@ -80,17 +80,21 @@ export async function getPending(tenantId, projectId) {
   }
 }
 
+const DEFAULT_POLL_TIMEOUT_MS = parseInt(process.env.POLL_TIMEOUT_MS, 10) || 30 * 60 * 1000;
+
 // Blocks until .response.json appears, then returns and cleans up both files.
-export async function pollResponse(tenantId, projectId, intervalMs = 2000) {
+// Rejects with Error('POLL_TIMEOUT') if no response arrives within timeoutMs.
+export async function pollResponse(tenantId, projectId, intervalMs = 2000, timeoutMs = DEFAULT_POLL_TIMEOUT_MS) {
   const rPath = responseFilePath(tenantId, projectId);
   const pPath = pendingFilePath(tenantId, projectId);
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const interval = setInterval(async () => {
       try {
         const raw = await fs.readFile(rPath, 'utf8');
         const response = JSON.parse(raw);
         clearInterval(interval);
+        clearTimeout(timer);
         await fs.unlink(rPath).catch(() => {});
         await fs.unlink(pPath).catch(() => {});
         resolve(response);
@@ -98,6 +102,11 @@ export async function pollResponse(tenantId, projectId, intervalMs = 2000) {
         // File not yet written — keep polling
       }
     }, intervalMs);
+
+    const timer = setTimeout(() => {
+      clearInterval(interval);
+      reject(new Error('POLL_TIMEOUT'));
+    }, timeoutMs);
   });
 }
 
