@@ -5,10 +5,55 @@ import { trackCost } from './cost-tracker.js';
 import { config } from './config.js';
 import * as out from './output.js';
 
-const client = new Anthropic();
-
 const MAX_TOKENS_OUT = 8096;
 const CONTEXT_WINDOW = 180000;
+
+// HTTP status codes that indicate a key problem — trigger fallback to next key
+const RETRYABLE_STATUSES = new Set([401, 403, 429]);
+
+// ---------------------------------------------------------------------------
+// Key loading (lazy — deferred until first callClaude to ensure dotenv has run)
+// ---------------------------------------------------------------------------
+
+// Scans API_KEY_1 through API_KEY_10. Skips missing slots (no gap-stop).
+// Falls back to ANTHROPIC_API_KEY for backwards compatibility.
+function loadApiKeys() {
+  const keys = [];
+  for (let i = 1; i <= 10; i++) {
+    const key = process.env[`API_KEY_${i}`];
+    if (key) {
+      const provider = key.startsWith('sk-or-') ? 'openrouter' : 'anthropic';
+      keys.push({ key, provider });
+    }
+  }
+  if (keys.length === 0 && process.env.ANTHROPIC_API_KEY) {
+    keys.push({ key: process.env.ANTHROPIC_API_KEY, provider: 'anthropic' });
+  }
+  return keys;
+}
+
+let _apiKeys = null;
+function getApiKeys() {
+  if (!_apiKeys) _apiKeys = loadApiKeys();
+  return _apiKeys;
+}
+
+// ---------------------------------------------------------------------------
+// Anthropic client cache — one client per key, built on first use
+// ---------------------------------------------------------------------------
+
+const _anthropicClients = new Map();
+
+function getAnthropicClient(key) {
+  if (!_anthropicClients.has(key)) {
+    _anthropicClients.set(key, new Anthropic({ apiKey: key }));
+  }
+  return _anthropicClients.get(key);
+}
+
+// ---------------------------------------------------------------------------
+// Model name mapping
+// ---------------------------------------------------------------------------
 
 export const AGENT_CONTEXT_NEEDS = {
   'agent-pm':           ['guardrails', 'patterns', 'architecture', 'decisions'],
@@ -34,7 +79,22 @@ export const AGENT_MODEL = {
   'docs-agent':         'claude-haiku-4-5-20251001',
 };
 
-// Canned dry-run responses per agentId — used when config.dryRun = true.
+// Lazy-read: env vars may not be available at module-load time (before dotenv)
+let _openRouterModelMap = null;
+function getOpenRouterModel(anthropicModel) {
+  if (!_openRouterModelMap) {
+    _openRouterModelMap = {
+      'claude-sonnet-4-20250514':  process.env.OPENROUTER_SONNET_MODEL || 'anthropic/claude-sonnet-4',
+      'claude-haiku-4-5-20251001': process.env.OPENROUTER_HAIKU_MODEL  || 'anthropic/claude-haiku-4-5',
+    };
+  }
+  return _openRouterModelMap[anthropicModel] ?? anthropicModel;
+}
+
+// ---------------------------------------------------------------------------
+// Dry-run canned responses
+// ---------------------------------------------------------------------------
+
 const DRY_RUN_RESPONSES = {
   'agent-pm': JSON.stringify({
     action: 'route',
@@ -174,6 +234,106 @@ Login form component with email/password validation and loading state.
   'history-compressor': '[DRY RUN] Compressed session history. Key decisions: routing spec-agent → dev-agent. Plan approved.',
 };
 
+// ---------------------------------------------------------------------------
+// Provider call helpers
+// ---------------------------------------------------------------------------
+
+// Anthropic SDK — non-streaming (uses cached client per key)
+async function callAnthropicSync(key, model, system, messages, maxTokens) {
+  return getAnthropicClient(key).messages.create({ model, max_tokens: maxTokens, system, messages });
+}
+
+// Anthropic SDK — streaming (returns stream handle; caller attaches listeners)
+function callAnthropicStream(key, model, system, messages, maxTokens) {
+  return getAnthropicClient(key).messages.stream({ model, max_tokens: maxTokens, system, messages });
+}
+
+// OpenRouter — non-streaming (OpenAI-compatible REST API via native fetch)
+async function callOpenRouter(key, model, system, messages, maxTokens) {
+  const baseUrl = process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1';
+  const orModel = getOpenRouterModel(model);
+
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${key}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://glowing-spoon.local',
+      'X-Title': 'Glowing Spoon',
+    },
+    body: JSON.stringify({
+      model: orModel,
+      messages: [{ role: 'system', content: system }, ...messages],
+      max_tokens: maxTokens,
+    }),
+  });
+
+  if (!response.ok) {
+    const err = new Error(`OpenRouter HTTP ${response.status}`);
+    err.status = response.status;
+    throw err;
+  }
+
+  const data = await response.json();
+
+  if (!data.choices?.length) {
+    throw new Error(`OpenRouter: no choices in response (model=${orModel})`);
+  }
+  if (!data.usage) {
+    throw new Error(`OpenRouter: missing usage object in response (model=${orModel})`);
+  }
+
+  // Normalize to Anthropic response shape so callers need no provider awareness
+  return {
+    content: [{ text: data.choices[0].message?.content ?? '' }],
+    usage: {
+      input_tokens: data.usage.prompt_tokens,
+      output_tokens: data.usage.completion_tokens,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Fallback orchestration
+// ---------------------------------------------------------------------------
+
+// Try each key in order. Retries on 429/401/403 (key problem).
+// Any other error is rethrown immediately (not a key issue).
+async function callWithFallback(model, system, messages, maxTokens) {
+  const keys = getApiKeys();
+  if (keys.length === 0) {
+    throw new Error('No API keys configured. Set API_KEY_1 or ANTHROPIC_API_KEY in .env');
+  }
+
+  let lastErr;
+  for (const { key, provider } of keys) {
+    try {
+      if (provider === 'openrouter') {
+        return await callOpenRouter(key, model, system, messages, maxTokens);
+      }
+      return await callAnthropicSync(key, model, system, messages, maxTokens);
+    } catch (err) {
+      const status = err.status ?? err.error?.status;
+      if (RETRYABLE_STATUSES.has(status)) {
+        out.warn(`[${provider}] key failed with ${status} — trying next key`);
+        lastErr = err;
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr ?? new Error('All API keys exhausted');
+}
+
+// For streaming: use the first Anthropic key (streaming is Anthropic-only).
+function findFirstAnthropicKey() {
+  return getApiKeys().find(k => k.provider === 'anthropic')?.key ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
 export async function callClaude({
   systemPrompt,
   userPrompt,
@@ -191,7 +351,6 @@ export async function callClaude({
   if (isDryRun) {
     const text = DRY_RUN_RESPONSES[agentId] ?? `[DRY RUN] ${agentId} response placeholder.`;
     out.log(agentId, `[dry-run] skipping API call`);
-    // Simulate token usage for cost tracking
     await trackCost({
       sessionId, tenantId, projectId, agentId,
       model: AGENT_MODEL[agentId] ?? 'claude-sonnet-4-20250514',
@@ -201,7 +360,13 @@ export async function callClaude({
   }
 
   const model = AGENT_MODEL[agentId] ?? 'claude-sonnet-4-20250514';
-  const vaultNeeds = AGENT_CONTEXT_NEEDS[agentId] ?? ['guardrails', 'patterns'];
+
+  const declaredNeeds = AGENT_CONTEXT_NEEDS[agentId];
+  if (declaredNeeds === undefined) {
+    out.warn(`[claude] unknown agentId "${agentId}" — no vault needs declared. Using defaults.`);
+  }
+  const vaultNeeds = declaredNeeds ?? ['guardrails', 'patterns'];
+
   const vault = tenantId && projectId
     ? await loadSelectiveVault(tenantId, projectId, vaultNeeds)
     : '';
@@ -227,20 +392,27 @@ export async function callClaude({
   }
 
   const messages = [...history, { role: 'user', content: userPrompt }];
-  const callParams = { model, max_tokens: MAX_TOKENS_OUT, system: finalSystem, messages };
 
-  if (!stream) {
-    const response = await client.messages.create(callParams);
-    await trackCost({ sessionId, tenantId, projectId, agentId, model, usage: response.usage });
-    return response;
+  // Streaming: Anthropic keys only, first available, no key fallback mid-stream
+  if (stream) {
+    const anthropicKey = findFirstAnthropicKey();
+    if (!anthropicKey) throw new Error('Streaming requires an Anthropic key (sk-ant-*). No Anthropic key found in API_KEY_N list.');
+    const stream_ = callAnthropicStream(anthropicKey, model, finalSystem, messages, MAX_TOKENS_OUT);
+    stream_.on('text', (chunk) => out.chunk(chunk));
+    stream_.on('error', (err) => out.warn(`[stream] error mid-flight: ${err.message}`));
+    stream_.on('message', async (finalMessage) => {
+      out.chunkEnd();
+      try {
+        await trackCost({ sessionId, tenantId, projectId, agentId, model, usage: finalMessage.usage });
+      } catch (e) {
+        out.blocked(e.message);
+      }
+    });
+    return stream_;
   }
 
-  // Streaming
-  const stream_ = client.messages.stream(callParams);
-  stream_.on('text', (text) => out.chunk(text));
-  stream_.on('message', async (finalMessage) => {
-    out.chunkEnd();
-    await trackCost({ sessionId, tenantId, projectId, agentId, model, usage: finalMessage.usage });
-  });
-  return stream_;
+  // Non-streaming: full key fallback
+  const response = await callWithFallback(model, finalSystem, messages, MAX_TOKENS_OUT);
+  await trackCost({ sessionId, tenantId, projectId, agentId, model, usage: response.usage });
+  return response;
 }

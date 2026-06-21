@@ -55,7 +55,7 @@ export function registerWorkspaceCommands(program) {
   ws.command('list')
     .description('List all workspaces for tenant local')
     .action(async () => {
-      const root = path.join(process.env.WORKSPACE_ROOT || './workspaces', TENANT_ID);
+      const root = path.join(path.resolve(process.env.WORKSPACE_ROOT || './workspaces'), TENANT_ID);
       try {
         const projects = await fs.readdir(root);
         if (projects.length === 0) {

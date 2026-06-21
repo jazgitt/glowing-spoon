@@ -2,8 +2,9 @@
 import 'dotenv/config';
 import { program } from 'commander';
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error('[ERROR] ANTHROPIC_API_KEY is not set. Copy .env.example to .env and add your key.');
+const hasKey = process.env.ANTHROPIC_API_KEY || process.env.API_KEY_1;
+if (!hasKey) {
+  console.error('[ERROR] No API key configured. Set API_KEY_1 (or ANTHROPIC_API_KEY) in your .env file.');
   process.exit(1);
 }
 import { registerWorkspaceCommands } from './commands/workspace.js';
