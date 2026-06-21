@@ -1,17 +1,10 @@
+import { spawn } from 'child_process';
+import { createWriteStream } from 'fs';
+import path from 'path';
 import { initSession } from '../../engine/session.js';
 import { AgentPM } from '../../engine/agent-pm.js';
-import { runSpecAgent } from '../../agents/spec-agent/index.js';
-import { runDevAgent } from '../../agents/dev-agent/index.js';
-import { runReviewAgent } from '../../agents/review-agent/index.js';
-import { runQAAgent } from '../../agents/qa-agent/index.js';
-import { runDocsAgent } from '../../agents/docs-agent/index.js';
-import { promoteToCurrentVersion } from '../../engine/output-store.js';
-import {
-  updateSession, setSessionStatus,
-  recordAgentStart, recordAgentComplete, recordAgentRetry,
-  addToAttentionQueue, syncAgentPMHistory,
-} from '../../engine/session.js';
-import { writePending, pollResponse, getSession } from '../../store/file-store.js';
+import { runSession } from '../../engine/session-runner.js';
+import { saveSession } from '../../store/file-store.js';
 import { config } from '../../utils/config.js';
 import * as out from '../../utils/output.js';
 
@@ -24,276 +17,69 @@ export function registerSessionCommands(program) {
     .requiredOption('--project <id>', 'Project ID')
     .option('--budget <dollars>', 'Cost budget in USD', '5.00')
     .option('--dry-run', 'Dry run — no real Claude calls', false)
+    .option('--background', 'Run in background; logs to session.log', false)
     .action(async (opts) => {
       if (!/^[a-zA-Z0-9_-]+$/.test(opts.project)) {
         out.error('Project ID must contain only letters, numbers, hyphens, and underscores.');
         process.exit(1);
       }
+
+      // HIGH-1: validate budget before initSession
+      const budget = parseFloat(opts.budget);
+      if (!Number.isFinite(budget) || budget <= 0) {
+        out.error('--budget must be a positive number (e.g. --budget 5.00)');
+        process.exit(1);
+      }
+
       if (opts.dryRun) config.dryRun = true;
 
       const session = await initSession({
         tenantId: TENANT_ID,
         projectId: opts.project,
-        costBudget: parseFloat(opts.budget),
+        costBudget: budget,
         dryRun: opts.dryRun,
       });
 
       out.header(`Session ${session.sessionId}`);
       out.log('session', `Project: ${opts.project} | Budget: $${opts.budget}${opts.dryRun ? ' | DRY RUN' : ''}`);
 
+      if (opts.background) {
+        await spawnBackground(session, opts);
+        return;
+      }
+
       const agentPM = new AgentPM(session);
-
-      // Phase 1: Plan
-      out.divider();
-      out.log('agent-pm', 'Generating execution plan...');
-      await setSessionStatus(session, 'planning');
-
-      const planText = await agentPM.plan();
-      await syncAgentPMHistory(session, agentPM);
-
-      let plan;
-      try {
-        plan = JSON.parse(planText.match(/\{[\s\S]*\}/)?.[0] ?? planText);
-      } catch {
-        plan = { stories: [], sessionGoal: planText };
-      }
-
-      out.divider();
-      out.header('Execution Plan');
-      if (plan.sessionGoal) out.log('plan', plan.sessionGoal);
-      if (plan.stories?.length > 0) {
-        plan.stories.forEach((s, i) => out.log('plan', `${i + 1}. [${s.complexity || '?'}] ${s.title || s.description}`));
-      } else {
-        out.log('plan', planText.slice(0, 500));
-      }
-
-      out.divider();
-      out.pending('Waiting for PM approval. Run: glowing-spoon approve --session ' + session.sessionId);
-      out.pending('Or to reject: glowing-spoon reject --session ' + session.sessionId + ' --feedback "your feedback"');
-
-      await writePending(session.tenantId, session.projectId, {
-        type: 'plan-approval',
-        plan: planText,
-      });
-
-      let pmResponse;
-      try {
-        pmResponse = await pollResponse(session.tenantId, session.projectId);
-      } catch (err) {
-        if (err.message === 'POLL_TIMEOUT') {
-          out.error('No PM response received within timeout. Session stopped.');
-          out.pending(`To resume: glowing-spoon approve --session ${session.sessionId}`);
-          await setSessionStatus(session, 'stopped');
-          return;
-        }
-        throw err;
-      }
-
-      if (pmResponse.action === 'reject') {
-        out.log('agent-pm', `PM feedback: ${pmResponse.feedback}`);
-        const revisedPlanText = await agentPM.revisePlan(pmResponse.feedback);
-        await syncAgentPMHistory(session, agentPM);
-
-        let revisedPlan;
-        try {
-          revisedPlan = JSON.parse(revisedPlanText.match(/\{[\s\S]*\}/)?.[0] ?? revisedPlanText);
-        } catch {
-          revisedPlan = { stories: [], sessionGoal: revisedPlanText };
-        }
-
-        out.divider();
-        out.header('Revised Plan');
-        if (revisedPlan.sessionGoal) out.log('plan', revisedPlan.sessionGoal);
-        if (revisedPlan.stories?.length > 0) {
-          revisedPlan.stories.forEach((s, i) => out.log('plan', `${i + 1}. [${s.complexity || '?'}] ${s.title || s.description}`));
-        } else {
-          out.log('plan', revisedPlanText.slice(0, 500));
-        }
-
-        out.divider();
-        out.pending('Waiting for PM approval of revised plan. Run: glowing-spoon approve --session ' + session.sessionId);
-
-        await writePending(session.tenantId, session.projectId, {
-          type: 'plan-approval',
-          plan: revisedPlanText,
-        });
-
-        let revisedResponse;
-        try {
-          revisedResponse = await pollResponse(session.tenantId, session.projectId);
-        } catch (err) {
-          if (err.message === 'POLL_TIMEOUT') {
-            out.error('No PM response received within timeout. Session stopped.');
-            await setSessionStatus(session, 'stopped');
-            return;
-          }
-          throw err;
-        }
-
-        if (revisedResponse.action === 'reject') {
-          out.error('Revised plan rejected. Session stopped. Update specs and re-run.');
-          await setSessionStatus(session, 'stopped');
-          return;
-        }
-
-        plan = revisedPlan;
-      }
-
-      // Phase 2: Execute pipeline
-      await setSessionStatus(session, 'executing');
-      await runPipeline(session, agentPM, plan);
-
-      // Final checkpoint — reload session from disk to get accurate cost totals
-      const finalSession = await getSession(TENANT_ID, opts.project);
-      out.divider();
-      out.header('Session Complete');
-      out.success(`All agents finished. Session ID: ${session.sessionId}`);
-      out.log('session', `Cost: $${finalSession?.tokenUsage?.total?.toFixed(4) ?? '0.0000'} of $${opts.budget}`);
-      out.log('session', `Output at: workspaces/${TENANT_ID}/${opts.project}/output/`);
+      await runSession(session, agentPM);
     });
 }
 
-// Strip filepath directives and cap length before passing agent output into the next prompt.
-function sanitizeAgentOutput(text, maxChars = 50_000) {
-  return text
-    .split('\n')
-    .filter(line => !line.startsWith('// filepath:'))
-    .join('\n')
-    .slice(0, maxChars);
-}
+async function spawnBackground(session, opts) {
+  const workspaceRoot = path.resolve(process.env.WORKSPACE_ROOT || './workspaces');
+  const logFile = path.join(workspaceRoot, session.tenantId, session.projectId, 'session.log');
 
-async function runPipeline(session, agentPM, plan) {
-  const stories = plan.stories ?? [{ title: 'Execute all specs', description: plan.sessionGoal || 'Run pipeline' }];
+  session.runtime.background = true;
+  session.runtime.logFile = logFile;
+  await saveSession(session);
 
-  for (const story of stories) {
-    out.divider();
-    out.header(`Story: ${story.title || story.description}`);
+  // Spawn `glowing-spoon resume --session <id>` as detached child — inherits env (API keys).
+  // resume uses the persisted session (including dryRun flag) so no extra args needed.
+  const logStream = createWriteStream(logFile, { flags: 'a' });
+  await new Promise(resolve => logStream.once('open', resolve));
 
-    await runStoryPipeline(session, agentPM, story.description || story.title, story.title);
-  }
-}
+  const child = spawn(
+    process.execPath,
+    [process.argv[1], 'resume', '--session', session.sessionId],
+    { detached: true, stdio: ['ignore', logStream, logStream] }
+  );
+  child.unref();
 
-async function runStoryPipeline(session, agentPM, taskDescription, storyTitle) {
-  // --- Spec Agent ---
-  let specOutput = await runAgentWithRetry({
-    agentId: 'spec-agent',
-    session,
-    agentFn: (fb) => runSpecAgent({ session, taskDescription, pmFeedback: fb }),
-    spec: taskDescription,
-  });
+  session.runtime.pid = child.pid;
+  await saveSession(session);
 
-  if (!specOutput) return;
-
-  // Sanitize spec output before passing into downstream agents (CRITICAL-2)
-  const devInput = sanitizeAgentOutput(specOutput.outputText);
-
-  let devOutput = await runAgentWithRetry({
-    agentId: 'dev-agent',
-    session,
-    agentFn: (fb, syntaxErrors) => runDevAgent({
-      session,
-      refinedSpec: devInput,
-      taskDescription: storyTitle || taskDescription,
-      pmFeedback: fb,
-      syntaxErrors: syntaxErrors || [],
-    }),
-    spec: devInput,
-    handleSyntaxErrors: true,
-  });
-
-  if (!devOutput) return;
-
-  // Promote dev output to current
-  if (devOutput.version) {
-    await promoteToCurrentVersion({ tenantId: session.tenantId, projectId: session.projectId, version: devOutput.version });
-  }
-
-  // Sanitize dev output before passing into downstream agents (CRITICAL-2)
-  const codeInput = sanitizeAgentOutput(devOutput.outputText);
-
-  // --- Review Agent ---
-  await runAgentWithRetry({
-    agentId: 'review-agent',
-    session,
-    agentFn: (fb) => runReviewAgent({ session, code: codeInput, spec: devInput, pmFeedback: fb }),
-    spec: devInput,
-  });
-
-  // --- QA Agent ---
-  let qaOutput = await runAgentWithRetry({
-    agentId: 'qa-agent',
-    session,
-    agentFn: (fb) => runQAAgent({ session, spec: devInput, code: codeInput, pmFeedback: fb }),
-    spec: devInput,
-  });
-
-  // --- Docs Agent ---
-  await runAgentWithRetry({
-    agentId: 'docs-agent',
-    session,
-    agentFn: (fb) => runDocsAgent({
-      session,
-      spec: devInput,
-      code: codeInput,
-      tests: qaOutput?.outputText ?? '',
-      pmFeedback: fb,
-    }),
-    spec: devInput,
-  });
-}
-
-async function runAgentWithRetry({ agentId, session, agentFn, spec, handleSyntaxErrors = false }) {
-  let feedback = [];
-  let syntaxErrors = [];
-
-  for (let attempt = 0; attempt <= 2; attempt++) {
-    await recordAgentStart(session, agentId);
-    const result = await agentFn(feedback, syntaxErrors);
-
-    // Handle syntax errors from dev-agent before quality gate
-    if (handleSyntaxErrors && result.syntaxErrors?.length > 0) {
-      if (attempt < 2) {
-        syntaxErrors = result.syntaxErrors;
-        feedback = result.syntaxErrors.map(e => `Syntax error in ${e.file} line ${e.line}: ${e.error}`);
-        await recordAgentRetry(session, agentId, 'syntax errors');
-        continue;
-      } else {
-        out.error(`[${agentId}] Syntax errors persist after 2 retries — escalating`);
-        await addToAttentionQueue(session, {
-          type: 'agent:escalated',
-          attention: 'BLOCKING',
-          agent: agentId,
-          failureType: 'SYNTAX_ERROR',
-          issues: result.syntaxErrors,
-        });
-        return null;
-      }
-    }
-
-    const { gateResult, version } = result;
-
-    if (!gateResult || gateResult.action === 'pass') {
-      await recordAgentComplete(session, agentId, version, gateResult?.scores);
-      return result;
-    }
-
-    if (gateResult.action === 'retry' && attempt < 2) {
-      feedback = [...(gateResult.feedback || []), ...(gateResult.suggestions || [])];
-      await recordAgentRetry(session, agentId, gateResult.feedback?.join('; ') || 'quality gate fail');
-      continue;
-    }
-
-    // Escalate
-    out.blocked(`[${agentId}] Quality gate failed permanently — escalating to PM`);
-    await addToAttentionQueue(session, {
-      type: 'quality:failed',
-      attention: 'BLOCKING',
-      agent: agentId,
-      scores: gateResult.scores,
-      issues: gateResult.issues,
-    });
-    return null;
-  }
-
-  return null;
+  out.success(`Session running in background (PID ${child.pid})`);
+  out.log('session', `Session ID : ${session.sessionId}`);
+  out.log('session', `Log        : ${logFile}`);
+  out.log('session', `Status     : glowing-spoon status  --session ${session.sessionId}`);
+  out.log('session', `Approve    : glowing-spoon approve --session ${session.sessionId}`);
+  out.log('session', `Stop       : glowing-spoon stop    --session ${session.sessionId}`);
 }

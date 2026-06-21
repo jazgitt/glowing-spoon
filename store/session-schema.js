@@ -42,6 +42,22 @@ export function createSession({ tenantId, projectId, costBudget = 5.00, dryRun =
       perCall: [],
     },
 
+    // stage: 'plan' | 'spec' | 'checkpoint' | 'done'
+    // checkpointData: set when dev-agent completes, cleared after checkpoint approved
+    pipeline: {
+      stories: [],
+      storyIndex: 0,
+      stage: 'plan',
+      checkpointData: null,
+    },
+
+    // background run metadata (pid, log path)
+    runtime: {
+      background: false,
+      pid: null,
+      logFile: null,
+    },
+
     feed: [],
     createdAt: Date.now(),
     updatedAt: Date.now(),

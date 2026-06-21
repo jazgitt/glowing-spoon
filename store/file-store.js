@@ -74,6 +74,67 @@ export async function updateAgentPMHistory(tenantId, projectId, conversationHist
   await saveSession(session);
 }
 
+// ---------------------------------------------------------------------------
+// Inbox — PM messages queued between pipeline stages (non-blocking)
+// ---------------------------------------------------------------------------
+
+function inboxFilePath(tenantId, projectId) {
+  return path.join(getWorkspacePath(tenantId, projectId), '.inbox.json');
+}
+
+// Append one message to the inbox. Safe for concurrent CLI → runner writes at Phase 1 scale.
+export async function writeInbox(tenantId, projectId, message) {
+  const filePath = inboxFilePath(tenantId, projectId);
+  let messages = [];
+  try { messages = JSON.parse(await fs.readFile(filePath, 'utf8')); } catch {}
+  messages.push({ message, timestamp: Date.now() });
+  await fs.writeFile(filePath, JSON.stringify(messages, null, 2));
+}
+
+// Read all queued messages, delete the inbox file, return the array.
+export async function drainInbox(tenantId, projectId) {
+  const filePath = inboxFilePath(tenantId, projectId);
+  try {
+    const messages = JSON.parse(await fs.readFile(filePath, 'utf8'));
+    await fs.unlink(filePath).catch(() => {});
+    return Array.isArray(messages) ? messages : [];
+  } catch {
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Stop flag — graceful shutdown signal written by `glowing-spoon stop`
+// ---------------------------------------------------------------------------
+
+function stopFlagPath(tenantId, projectId) {
+  return path.join(getWorkspacePath(tenantId, projectId), '.stop');
+}
+
+export async function writeStopFlag(tenantId, projectId) {
+  await fs.writeFile(stopFlagPath(tenantId, projectId), '1');
+}
+
+export async function clearStopFlag(tenantId, projectId) {
+  await fs.unlink(stopFlagPath(tenantId, projectId)).catch(() => {});
+}
+
+export async function checkStopFlag(tenantId, projectId) {
+  try {
+    await fs.access(stopFlagPath(tenantId, projectId));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// MEDIUM-2 (SECURITY — Phase 2 blocker):
+// writePending / pollResponse / writeResponse implement an unauthenticated local control
+// channel: any process that can write .response.json can approve plans or inject messages
+// into the Agent PM prompt. This is acceptable for Phase 1 (single local user, CLI only).
+// Before Phase 2 (multi-user): replace this file-based channel with an authenticated,
+// per-tenant transport (e.g. signed tokens over a local socket or HTTP endpoint). Do NOT
+// carry this pattern into a networked or multi-tenant deployment.
 export async function writePending(tenantId, projectId, pending) {
   await fs.writeFile(pendingFilePath(tenantId, projectId), JSON.stringify(pending, null, 2));
 }

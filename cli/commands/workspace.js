@@ -5,6 +5,20 @@ import * as out from '../../utils/output.js';
 
 const TENANT_ID = 'local';
 
+async function copyDir(src, dest) {
+  await fs.mkdir(dest, { recursive: true });
+  const entries = await fs.readdir(src, { withFileTypes: true });
+  for (const entry of entries) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      await copyDir(srcPath, destPath);
+    } else {
+      await fs.copyFile(srcPath, destPath);
+    }
+  }
+}
+
 export function registerWorkspaceCommands(program) {
   const ws = program.command('workspace').description('Manage product workspaces');
 
@@ -50,6 +64,42 @@ export function registerWorkspaceCommands(program) {
 
       out.success(`Workspace initialized at ${workspacePath}`);
       out.log('workspace', `Next: edit ${path.join(workspacePath, 'context-vault')} vault files, then add specs to ${path.join(workspacePath, 'specs')}`);
+    });
+
+  ws.command('seed')
+    .description('Populate a new workspace from the built-in login-app example')
+    .requiredOption('--project <id>', 'Project ID to seed')
+    .action(async (opts) => {
+      if (!/^[a-zA-Z0-9_-]+$/.test(opts.project)) {
+        out.error('Project ID must contain only letters, numbers, hyphens, and underscores.');
+        process.exit(1);
+      }
+
+      const workspacePath = getWorkspacePath(TENANT_ID, opts.project);
+      const examplePath = path.join(new URL('../../examples/login-app', import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1'));
+
+      try {
+        await fs.access(examplePath);
+      } catch {
+        out.error(`Example not found at ${examplePath}. Run this command from the glowing-spoon repo root.`);
+        process.exit(1);
+      }
+
+      try {
+        await fs.access(workspacePath);
+        out.warn(`Workspace already exists at ${workspacePath} — files will be overwritten.`);
+      } catch {
+        // Does not exist — will be created
+      }
+
+      await copyDir(examplePath, workspacePath);
+
+      // Ensure required runtime directories exist even if example doesn't include them.
+      await fs.mkdir(path.join(workspacePath, 'output', 'versions'), { recursive: true });
+      await fs.mkdir(path.join(workspacePath, 'session-history'), { recursive: true });
+
+      out.success(`Workspace seeded at ${workspacePath}`);
+      out.log('workspace', `Try it: glowing-spoon run --project ${opts.project} --dry-run`);
     });
 
   ws.command('list')

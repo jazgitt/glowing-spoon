@@ -61,6 +61,12 @@ export async function validateWorkspace(tenantId, projectId) {
   return true;
 }
 
+// LOW-2: hard caps prevent unbounded context injection from ballooning API costs.
+// ~4 chars per token; vault sum = max per-file limits (12 k tokens → 48 k chars);
+// specs cap = 10 k tokens → 40 k chars.
+const MAX_VAULT_CHARS = 48_000;
+const MAX_SPECS_CHARS = 40_000;
+
 export async function loadSelectiveVault(tenantId, projectId, needs = []) {
   const base = path.join(getWorkspacePath(tenantId, projectId), 'context-vault');
 
@@ -82,7 +88,12 @@ export async function loadSelectiveVault(tenantId, projectId, needs = []) {
     }
   }
 
-  return sections.join('\n\n---\n\n');
+  const joined = sections.join('\n\n---\n\n');
+  if (joined.length > MAX_VAULT_CHARS) {
+    out.warn(`Context vault truncated to ${MAX_VAULT_CHARS} chars (was ${joined.length}). Trim vault files to reduce cost.`);
+    return joined.slice(0, MAX_VAULT_CHARS);
+  }
+  return joined;
 }
 
 export async function loadSpecs(tenantId, projectId) {
@@ -99,7 +110,12 @@ export async function loadSpecs(tenantId, projectId) {
   } catch {
     // specs dir missing — return empty
   }
-  return sections.join('\n\n---\n\n');
+  const joined = sections.join('\n\n---\n\n');
+  if (joined.length > MAX_SPECS_CHARS) {
+    out.warn(`Specs truncated to ${MAX_SPECS_CHARS} chars (was ${joined.length}). Split large specs into smaller files to avoid truncation.`);
+    return joined.slice(0, MAX_SPECS_CHARS);
+  }
+  return joined;
 }
 
 export async function loadProductMd(tenantId, projectId) {

@@ -36,18 +36,35 @@ Return JSON only:
     dryRun: session.dryRun,
   });
 
+  // MEDIUM-1: shape-validate after parse — malformed-but-valid JSON (e.g. missing
+  // `scores`) must not crash Object.entries() further down. Default to FAIL, not crash.
+  const FALLBACK_RESULT = {
+    scores: { spec_compliance: 50, pattern_compliance: 50, guardrail_compliance: 50, completeness: 50 },
+    overall: 50, passed: false,
+    issues: ['Could not parse quality scorer response'],
+    suggestions: ['Retry'],
+  };
+
   let result;
   try {
     const text = response.content[0].text.trim();
-    result = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? text);
+    const parsed = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? text);
+    // Validate required shape before accepting
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      parsed.scores && typeof parsed.scores === 'object' &&
+      typeof parsed.overall === 'number' &&
+      typeof parsed.passed === 'boolean'
+    ) {
+      result = parsed;
+    } else {
+      out.error('Quality gate response missing required fields — treating as FAIL');
+      result = { ...FALLBACK_RESULT, issues: ['Quality scorer returned incomplete response'] };
+    }
   } catch (err) {
     out.error(`Quality gate parse error: ${err.message}`);
-    result = {
-      scores: { spec_compliance: 50, pattern_compliance: 50, guardrail_compliance: 50, completeness: 50 },
-      overall: 50, passed: false,
-      issues: ['Could not parse quality scorer response'],
-      suggestions: ['Retry'],
-    };
+    result = FALLBACK_RESULT;
   }
 
   const retryCount = session.agents[agentId]?.retryCount ?? 0;

@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { loadSelectiveVault } from './workspace.js';
 import { estimateTokens, trimToFit } from './token-counter.js';
-import { trackCost } from './cost-tracker.js';
+import { trackCost, checkBudgetBefore } from './cost-tracker.js';
 import { config } from './config.js';
 import * as out from './output.js';
 
@@ -393,6 +393,12 @@ export async function callClaude({
 
   const messages = [...history, { role: 'user', content: userPrompt }];
 
+  // HIGH-2: pre-call budget check — refuse before spending a cent if this call would
+  // push total cost over the session budget. estimatedInputTokens is approximate (~4
+  // chars/token); checkBudgetBefore adds a MAX_TOKENS_OUT cushion for output.
+  const estimatedInputTokens = estimateTokens(finalSystem) + estimateTokens(JSON.stringify(messages));
+  await checkBudgetBefore({ tenantId, projectId, model, estimatedInputTokens });
+
   // Streaming: Anthropic keys only, first available, no key fallback mid-stream
   if (stream) {
     const anthropicKey = findFirstAnthropicKey();
@@ -402,10 +408,15 @@ export async function callClaude({
     stream_.on('error', (err) => out.warn(`[stream] error mid-flight: ${err.message}`));
     stream_.on('message', async (finalMessage) => {
       out.chunkEnd();
+      // HIGH-2 note: the pre-call checkBudgetBefore guard (above) blocks calls that
+      // would overshoot budget. trackCost here is post-billing accounting only;
+      // COST_BUDGET_EXCEEDED after streaming means we've already paid — log it and
+      // stop future calls via the session total (next pre-call check will catch it).
       try {
         await trackCost({ sessionId, tenantId, projectId, agentId, model, usage: finalMessage.usage });
       } catch (e) {
-        out.blocked(e.message);
+        out.blocked(`[stream] ${e.message}`);
+        out.pending('Budget reached during streaming. No further calls will be dispatched.');
       }
     });
     return stream_;
