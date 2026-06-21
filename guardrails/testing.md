@@ -12,8 +12,7 @@ node test/run-spec-agent.js \
 
 Expected:
 - Refined spec + acceptance criteria printed to console
-- Files at `./workspaces/local/my-product/output/versions/v1/specs/`
-- `manifest.json` present with correct metadata
+- Files at `./workspaces/local/my-product/output/specs/`
 - Quality score printed, must be >= 80 to pass gate
 - Cost printed to console
 

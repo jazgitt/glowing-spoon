@@ -1,13 +1,12 @@
 # Skill System
 
-Skills are versioned markdown files injected into agent system prompts. Skill version is snapshotted at session start — mid-session skill updates never affect in-flight sessions.
+Skills are markdown files injected into agent system prompts. The current file on disk is always used — there is no version snapshotting.
 
 ## Skill File Format
 
 ```markdown
 ---
 skill: write-react-component
-version: 1.2
 agent: dev-agent
 ---
 
@@ -38,6 +37,6 @@ export async function resolveSkills(agentId, taskDescription, session) {
   const availableSkills = await listSkills(agentId);  // reads skill headers only
   // Claude picks which skills apply to this task
   // Returns skill filenames — contents then injected into agent system prompt
-  // Uses session.skillVersionSnapshot to load pinned versions
+  // Returns skill filenames — current file contents injected into agent system prompt
 }
 ```

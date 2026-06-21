@@ -27,7 +27,7 @@ Every design decision follows from these. Internalize them first.
 3. **Context vault is selective, not full.** Each agent declares exactly which vault files it needs. Only those are injected. `guardrails.md` and `patterns.md` are always injected. Nothing else by default.
 4. **Agent PM holds the session brain.** It maintains running conversation history for the entire session. Specialist agents are stateless workers.
 5. **All failures are typed.** No generic errors. Every failure has a type, a recovery strategy, and a PM notification level.
-6. **Output is versioned.** Every agent output is a new version. Retries never overwrite.
+6. **Output is single-source.** Every agent output writes directly to `output/`. Retries overwrite the previous run.
 7. **Token budget is managed proactively.** Every Claude call knows its budget before it starts. Never silently overflow.
 8. **PM attention is scarce.** Session output clearly separates informational logs from blocked states that require PM action.
 9. **Right model for right task.** Sonnet for reasoning. Haiku for mechanical tasks (scoring, skill resolution, history compression). Never use Sonnet where Haiku is sufficient.
@@ -127,7 +127,7 @@ Follow exactly. Read the referenced guardrails file before building each step.
 8.  utils/workspace.js               → guardrails/workspace.md
 9.  utils/claude.js                  → guardrails/context-injection.md
 10. utils/file-validator.js          → guardrails/quality-gate.md
-11. engine/output-store.js           → guardrails/output-versioning.md
+11. engine/output-store.js           → guardrails/output-store.md
 12. engine/skill-resolver.js         → guardrails/skill-system.md
 13. engine/quality-gate.js           → guardrails/quality-gate.md
 14. agents/spec-agent/index.js

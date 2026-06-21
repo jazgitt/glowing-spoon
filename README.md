@@ -53,7 +53,7 @@ glowing-spoon approve --session <id>    # approve plan
 glowing-spoon approve --session <id>    # approve dev checkpoint
 ```
 
-Output lands in `workspaces/local/demo/output/versions/`.
+Output lands in `workspaces/local/demo/output/`.
 
 ---
 
@@ -90,7 +90,7 @@ You describe what to build → Agent PM plans the session
   → docs-agent  writes component and API documentation
 ```
 
-Each agent's output is saved as a numbered version. Retries never overwrite. You can review any version under `output/versions/`.
+Each agent's output is written directly to `output/`. Retries overwrite the previous output — only the latest run is kept.
 
 A **dev checkpoint** pauses after dev-agent completes so you can read the code before tests and docs are generated. Use `approve` to continue or `reject --feedback` to have dev-agent revise.
 
