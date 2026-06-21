@@ -25,6 +25,10 @@ export function registerSessionCommands(program) {
     .option('--budget <dollars>', 'Cost budget in USD', '5.00')
     .option('--dry-run', 'Dry run — no real Claude calls', false)
     .action(async (opts) => {
+      if (!/^[a-zA-Z0-9_-]+$/.test(opts.project)) {
+        out.error('Project ID must contain only letters, numbers, hyphens, and underscores.');
+        process.exit(1);
+      }
       if (opts.dryRun) config.dryRun = true;
 
       const session = await initSession({
@@ -149,6 +153,15 @@ export function registerSessionCommands(program) {
     });
 }
 
+// Strip filepath directives and cap length before passing agent output into the next prompt.
+function sanitizeAgentOutput(text, maxChars = 50_000) {
+  return text
+    .split('\n')
+    .filter(line => !line.startsWith('// filepath:'))
+    .join('\n')
+    .slice(0, maxChars);
+}
+
 async function runPipeline(session, agentPM, plan) {
   const stories = plan.stories ?? [{ title: 'Execute all specs', description: plan.sessionGoal || 'Run pipeline' }];
 
@@ -171,8 +184,8 @@ async function runStoryPipeline(session, agentPM, taskDescription, storyTitle) {
 
   if (!specOutput) return;
 
-  // --- Dev Agent ---
-  const devInput = specOutput.outputText;
+  // Sanitize spec output before passing into downstream agents (CRITICAL-2)
+  const devInput = sanitizeAgentOutput(specOutput.outputText);
 
   let devOutput = await runAgentWithRetry({
     agentId: 'dev-agent',
@@ -195,11 +208,14 @@ async function runStoryPipeline(session, agentPM, taskDescription, storyTitle) {
     await promoteToCurrentVersion({ tenantId: session.tenantId, projectId: session.projectId, version: devOutput.version });
   }
 
+  // Sanitize dev output before passing into downstream agents (CRITICAL-2)
+  const codeInput = sanitizeAgentOutput(devOutput.outputText);
+
   // --- Review Agent ---
   await runAgentWithRetry({
     agentId: 'review-agent',
     session,
-    agentFn: (fb) => runReviewAgent({ session, code: devOutput.outputText, spec: devInput, pmFeedback: fb }),
+    agentFn: (fb) => runReviewAgent({ session, code: codeInput, spec: devInput, pmFeedback: fb }),
     spec: devInput,
   });
 
@@ -207,7 +223,7 @@ async function runStoryPipeline(session, agentPM, taskDescription, storyTitle) {
   let qaOutput = await runAgentWithRetry({
     agentId: 'qa-agent',
     session,
-    agentFn: (fb) => runQAAgent({ session, spec: devInput, code: devOutput.outputText, pmFeedback: fb }),
+    agentFn: (fb) => runQAAgent({ session, spec: devInput, code: codeInput, pmFeedback: fb }),
     spec: devInput,
   });
 
@@ -218,7 +234,7 @@ async function runStoryPipeline(session, agentPM, taskDescription, storyTitle) {
     agentFn: (fb) => runDocsAgent({
       session,
       spec: devInput,
-      code: devOutput.outputText,
+      code: codeInput,
       tests: qaOutput?.outputText ?? '',
       pmFeedback: fb,
     }),

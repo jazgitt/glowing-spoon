@@ -62,11 +62,13 @@ export async function resolveSkills(agentId, taskDescription, session) {
     dryRun: session.dryRun,
   });
 
+  const availableFilenames = new Set(available.map(s => s.filename));
   try {
     const text = response.content[0].text.trim();
     const parsed = JSON.parse(text.match(/\[[\s\S]*\]/)?.[0] ?? text);
-    if (Array.isArray(parsed)) return parsed;
-    if (parsed.skills) return parsed.skills;
+    const candidates = Array.isArray(parsed) ? parsed : (parsed.skills ?? []);
+    const safe = candidates.filter(f => availableFilenames.has(f));
+    if (safe.length > 0) return safe;
   } catch {
     // Fall back to all skills if parse fails
   }

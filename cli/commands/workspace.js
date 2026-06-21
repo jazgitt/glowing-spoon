@@ -15,6 +15,10 @@ export function registerWorkspaceCommands(program) {
     .option('--description <text>', 'Product description', '')
     .option('--stack <text>', 'Tech stack description', '')
     .action(async (opts) => {
+      if (!/^[a-zA-Z0-9_-]+$/.test(opts.project)) {
+        out.error('Project ID must contain only letters, numbers, hyphens, and underscores.');
+        process.exit(1);
+      }
       const workspacePath = getWorkspacePath(TENANT_ID, opts.project);
 
       try {

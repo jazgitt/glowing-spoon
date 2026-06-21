@@ -2,7 +2,13 @@ import fs from 'fs/promises';
 import path from 'path';
 import { getWorkspacePath } from '../utils/workspace.js';
 
-const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT || './workspaces';
+const WORKSPACE_ROOT = path.resolve(process.env.WORKSPACE_ROOT || './workspaces');
+
+function assertValidSessionId(sessionId) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
+    throw new Error(`Invalid session ID: ${sessionId}`);
+  }
+}
 
 function registryFilePath(sessionId) {
   return path.join(WORKSPACE_ROOT, 'local', '.sessions', `${sessionId}.json`);
@@ -18,6 +24,7 @@ async function writeRegistry(session) {
 }
 
 export async function lookupSession(sessionId) {
+  assertValidSessionId(sessionId);
   try {
     const raw = await fs.readFile(registryFilePath(sessionId), 'utf8');
     return JSON.parse(raw);

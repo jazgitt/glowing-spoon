@@ -80,22 +80,27 @@ export class AgentPM {
   }
 
   revisePlan(feedback) {
-    return this.think(`PM feedback on plan: "${feedback}". Revise and restate full plan as structured JSON.`);
+    const safe = String(feedback).slice(0, 2000);
+    return this.think(`PM feedback on plan: "${safe}". Revise and restate full plan as structured JSON.`);
   }
 
   routeNext(lastOutput) {
-    return this.think(`Step complete. Output summary: ${lastOutput}. Decide next step and which agent to run. Return structured JSON decision.`);
+    const safe = String(lastOutput).slice(0, 2000);
+    return this.think(`Step complete. Output summary: ${safe}. Decide next step and which agent to run. Return structured JSON decision.`);
   }
 
   handleFailure(err) {
-    return this.think(`Failure occurred: ${JSON.stringify(err)}. Auto-recover if possible, or escalate with diagnosis. Return structured JSON decision.`);
+    const safe = JSON.stringify(err).slice(0, 2000);
+    return this.think(`Failure occurred: ${safe}. Auto-recover if possible, or escalate with diagnosis. Return structured JSON decision.`);
   }
 
   answerQuestion(q) {
-    return this.think(`PM question: "${q}". Answer using full session context. Do not affect pipeline state.`);
+    const safe = String(q).slice(0, 2000);
+    return this.think(`PM question: "${safe}". Answer using full session context. Do not affect pipeline state.`);
   }
 
   handleScopeChange(feedback) {
-    return this.think(`PM scope change: "${feedback}". Re-plan from current step. Return updated structured JSON plan.`);
+    const safe = String(feedback).slice(0, 2000);
+    return this.think(`PM scope change: "${safe}". Re-plan from current step. Return updated structured JSON plan.`);
   }
 }

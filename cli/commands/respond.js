@@ -9,6 +9,10 @@ export function registerRespondCommands(program) {
     .requiredOption('--session <id>', 'Session ID')
     .requiredOption('--message <text>', 'Message to send to Agent PM')
     .action(async (opts) => {
+      if (opts.message.length > 2000) {
+        out.error('Message must be 2000 characters or fewer.');
+        process.exit(1);
+      }
       const session = await loadSession(opts.session);
       await writeResponse(session.tenantId, session.projectId, {
         action: 'message',

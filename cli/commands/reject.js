@@ -9,6 +9,10 @@ export function registerRejectCommands(program) {
     .requiredOption('--session <id>', 'Session ID')
     .requiredOption('--feedback <text>', 'Feedback for Agent PM')
     .action(async (opts) => {
+      if (opts.feedback.length > 2000) {
+        out.error('Feedback must be 2000 characters or fewer.');
+        process.exit(1);
+      }
       const session = await loadSession(opts.session);
       await writeResponse(session.tenantId, session.projectId, {
         action: 'reject',

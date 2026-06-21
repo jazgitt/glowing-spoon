@@ -2,10 +2,14 @@ import fs from 'fs/promises';
 import path from 'path';
 import * as out from './output.js';
 
-const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT || './workspaces';
+const WORKSPACE_ROOT = path.resolve(process.env.WORKSPACE_ROOT || './workspaces');
 
 export function getWorkspacePath(tenantId, projectId) {
-  return path.join(WORKSPACE_ROOT, tenantId, projectId);
+  const result = path.resolve(WORKSPACE_ROOT, tenantId, projectId);
+  if (!result.startsWith(WORKSPACE_ROOT + path.sep)) {
+    throw new Error(`Path traversal blocked: ${tenantId}/${projectId}`);
+  }
+  return result;
 }
 
 const VAULT_TOKEN_LIMITS = {

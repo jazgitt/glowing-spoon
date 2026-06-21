@@ -12,7 +12,7 @@ export async function trackCost({ sessionId, tenantId, projectId, agentId, model
                  + (usage.output_tokens / 1_000_000 * rates.output);
 
   const session = await store.getSession(tenantId, projectId);
-  if (!session) return;
+  if (!session) throw new Error(`trackCost: session not found for ${tenantId}/${projectId} — cannot enforce budget`);
 
   session.tokenUsage.total += callCost;
   session.tokenUsage.perAgent[agentId] = (session.tokenUsage.perAgent[agentId] || 0) + callCost;
@@ -22,6 +22,9 @@ export async function trackCost({ sessionId, tenantId, projectId, agentId, model
     outputTokens: usage.output_tokens,
     timestamp: Date.now(),
   });
+  if (session.tokenUsage.perCall.length > 100) {
+    session.tokenUsage.perCall = session.tokenUsage.perCall.slice(-100);
+  }
   await store.saveSession(session);
 
   out.cost({ agentId, callCost, sessionTotal: session.tokenUsage.total, budget: session.costBudget });
