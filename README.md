@@ -13,7 +13,10 @@ glowing-spoon approve --session <id>
 ## Prerequisites
 
 - **Node.js 20+**
-- **An Anthropic API key** — get one at [console.anthropic.com](https://console.anthropic.com). Credit balance required for real runs (dry-run needs no credits).
+- **An OpenRouter API key** — get one free at [openrouter.ai/keys](https://openrouter.ai/keys)
+- **Provider keys in OpenRouter** — go to [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys) and add your keys for Anthropic (Claude), OpenAI (GPT), and/or Google (Gemini). OpenRouter routes through your keys so you control billing per provider.
+
+Dry-run mode needs no API key or credits.
 
 ---
 
@@ -27,9 +30,9 @@ npm install
 npm link            # makes `glowing-spoon` available globally
                     # (or use: node cli/index.js <command> ... without linking)
 
-# 2. Configure your API key
+# 2. Configure your OpenRouter key
 cp .env.example .env
-# Open .env and set API_KEY_1=sk-ant-...
+# Open .env and set OPENROUTER_API_KEY=sk-or-...
 # (Skip this step for dry-run — no API key needed)
 
 # 3. Seed the built-in example workspace
@@ -145,8 +148,8 @@ glowing-spoon run --project my-app --budget 5.00 --background
 - **Start small.** Use `--budget 2.00` for your first real run. The session stops if it would exceed the budget.
 - **Dry-run first.** `--dry-run` walks the full pipeline with canned responses — free, instant, verifies your setup.
 - **Per-call estimates.** The platform checks estimated cost before each API call and stops if it would overshoot your budget.
-- **Multiple API keys.** Add `API_KEY_2`, `API_KEY_3` etc. in `.env` — the platform falls back automatically on rate limits (429) or auth errors.
-- **OpenRouter keys** (`sk-or-...`) work alongside Anthropic keys. Set `API_KEY_2=sk-or-...` for automatic fallback.
+- **One key, any model.** A single `OPENROUTER_API_KEY` routes to Claude, GPT, or Gemini. Switch models in `.env` without changing code.
+- **You control provider billing.** Add your Anthropic/OpenAI/Google keys in [OpenRouter settings](https://openrouter.ai/settings/keys) — charges go directly to each provider at their published rates.
 
 ---
 
@@ -180,11 +183,11 @@ glowing-spoon resume --session <id> --background
 
 ## Troubleshooting
 
-**`Your credit balance is too low`**
-Add credits at [console.anthropic.com](https://console.anthropic.com), or use `--dry-run` to test without spend.
+**`Insufficient credits` / `402` error**
+Add credits for the relevant provider in your [OpenRouter account](https://openrouter.ai/credits), or use `--dry-run` to test without spend.
 
-**`No API key configured`**
-Make sure `.env` exists and contains `API_KEY_1=sk-ant-...`. Run from the repo root where `.env` lives.
+**`OPENROUTER_API_KEY not set`**
+Make sure `.env` exists and contains `OPENROUTER_API_KEY=sk-or-...`. Run from the repo root where `.env` lives.
 
 **`Workspace not found`**
 Run `glowing-spoon workspace init --project <id>` (or `workspace seed`) before `run`.

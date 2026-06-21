@@ -1,9 +1,19 @@
 import * as store from '../store/file-store.js';
 import * as out from './output.js';
 
+// Rates in USD per 1M tokens. All calls go through OpenRouter.
+// OpenRouter adds a small markup (~0.5%) which is negligible for budgeting purposes.
 const COST_PER_M_TOKENS = {
-  'claude-sonnet-4-20250514':  { input: 3.00,  output: 15.00 },
-  'claude-haiku-4-5-20251001': { input: 0.25,  output: 1.25  },
+  // Claude (via OpenRouter)
+  'anthropic/claude-sonnet-4':       { input: 3.00,  output: 15.00 },
+  'anthropic/claude-haiku-4-5':      { input: 0.25,  output: 1.25  },
+  'anthropic/claude-opus-4':         { input: 15.00, output: 75.00 },
+  // OpenAI (via OpenRouter)
+  'openai/gpt-4o':                   { input: 2.50,  output: 10.00 },
+  'openai/gpt-4o-mini':              { input: 0.15,  output: 0.60  },
+  // Google (via OpenRouter)
+  'google/gemini-2.0-flash-001':     { input: 0.10,  output: 0.40  },
+  'google/gemini-pro-1.5':           { input: 1.25,  output: 5.00  },
 };
 
 // Mirrors MAX_TOKENS_OUT in claude.js — used for worst-case pre-call estimate.
@@ -23,7 +33,7 @@ export async function checkBudgetBefore({ tenantId, projectId, model, estimatedI
     throw new Error('Session has invalid costBudget — aborting to prevent unbounded spend');
   }
 
-  const rates = COST_PER_M_TOKENS[model] ?? { input: 3.00, output: 15.00 };
+  const rates = COST_PER_M_TOKENS[model] ?? { input: 3.00, output: 15.00 }; // conservative fallback
   const estimatedCost = (estimatedInputTokens / 1_000_000 * rates.input)
                       + (MAX_TOKENS_OUT_ESTIMATE / 1_000_000 * rates.output);
 
@@ -37,6 +47,7 @@ export async function checkBudgetBefore({ tenantId, projectId, model, estimatedI
 }
 
 export async function trackCost({ sessionId, tenantId, projectId, agentId, model, usage }) {
+  // Unknown model falls back to Sonnet pricing (conservative overestimate).
   const rates = COST_PER_M_TOKENS[model] ?? { input: 3.00, output: 15.00 };
   const callCost = (usage.input_tokens  / 1_000_000 * rates.input)
                  + (usage.output_tokens / 1_000_000 * rates.output);

@@ -1,4 +1,3 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { loadSelectiveVault } from './workspace.js';
 import { estimateTokens, trimToFit } from './token-counter.js';
 import { trackCost, checkBudgetBefore } from './cost-tracker.js';
@@ -6,53 +5,25 @@ import { config } from './config.js';
 import * as out from './output.js';
 
 const MAX_TOKENS_OUT = 8096;
-const CONTEXT_WINDOW = 180000;
-
-// HTTP status codes that indicate a key problem — trigger fallback to next key
-const RETRYABLE_STATUSES = new Set([401, 403, 429]);
+const CONTEXT_WINDOW = 180_000;
+const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1';
 
 // ---------------------------------------------------------------------------
-// Key loading (lazy — deferred until first callClaude to ensure dotenv has run)
+// Model selection — two tiers, overridable via env
 // ---------------------------------------------------------------------------
 
-// Scans API_KEY_1 through API_KEY_10. Skips missing slots (no gap-stop).
-// Falls back to ANTHROPIC_API_KEY for backwards compatibility.
-function loadApiKeys() {
-  const keys = [];
-  for (let i = 1; i <= 10; i++) {
-    const key = process.env[`API_KEY_${i}`];
-    if (key) {
-      const provider = key.startsWith('sk-or-') ? 'openrouter' : 'anthropic';
-      keys.push({ key, provider });
-    }
-  }
-  if (keys.length === 0 && process.env.ANTHROPIC_API_KEY) {
-    keys.push({ key: process.env.ANTHROPIC_API_KEY, provider: 'anthropic' });
-  }
-  return keys;
-}
+// Agents that need multi-step reasoning use the reasoning model.
+// Mechanical agents (scoring, routing, compression) use the fast model.
+const REASONING_AGENTS = new Set(['agent-pm', 'spec-agent', 'dev-agent', 'review-agent']);
 
-let _apiKeys = null;
-function getApiKeys() {
-  if (!_apiKeys) _apiKeys = loadApiKeys();
-  return _apiKeys;
+function getModel(agentId) {
+  return REASONING_AGENTS.has(agentId)
+    ? (process.env.REASONING_MODEL || 'anthropic/claude-sonnet-4')
+    : (process.env.FAST_MODEL     || 'anthropic/claude-haiku-4-5');
 }
 
 // ---------------------------------------------------------------------------
-// Anthropic client cache — one client per key, built on first use
-// ---------------------------------------------------------------------------
-
-const _anthropicClients = new Map();
-
-function getAnthropicClient(key) {
-  if (!_anthropicClients.has(key)) {
-    _anthropicClients.set(key, new Anthropic({ apiKey: key }));
-  }
-  return _anthropicClients.get(key);
-}
-
-// ---------------------------------------------------------------------------
-// Model name mapping
+// Vault context needs per agent
 // ---------------------------------------------------------------------------
 
 export const AGENT_CONTEXT_NEEDS = {
@@ -67,30 +38,6 @@ export const AGENT_CONTEXT_NEEDS = {
   'history-compressor': [],
 };
 
-export const AGENT_MODEL = {
-  'agent-pm':           'claude-sonnet-4-20250514',
-  'spec-agent':         'claude-sonnet-4-20250514',
-  'dev-agent':          'claude-sonnet-4-20250514',
-  'review-agent':       'claude-sonnet-4-20250514',
-  'quality-scorer':     'claude-haiku-4-5-20251001',
-  'skill-resolver':     'claude-haiku-4-5-20251001',
-  'history-compressor': 'claude-haiku-4-5-20251001',
-  'qa-agent':           'claude-haiku-4-5-20251001',
-  'docs-agent':         'claude-haiku-4-5-20251001',
-};
-
-// Lazy-read: env vars may not be available at module-load time (before dotenv)
-let _openRouterModelMap = null;
-function getOpenRouterModel(anthropicModel) {
-  if (!_openRouterModelMap) {
-    _openRouterModelMap = {
-      'claude-sonnet-4-20250514':  process.env.OPENROUTER_SONNET_MODEL || 'anthropic/claude-sonnet-4',
-      'claude-haiku-4-5-20251001': process.env.OPENROUTER_HAIKU_MODEL  || 'anthropic/claude-haiku-4-5',
-    };
-  }
-  return _openRouterModelMap[anthropicModel] ?? anthropicModel;
-}
-
 // ---------------------------------------------------------------------------
 // Dry-run canned responses
 // ---------------------------------------------------------------------------
@@ -102,42 +49,50 @@ const DRY_RUN_RESPONSES = {
     agentContext: 'Refine all stories and write acceptance criteria.',
     message: '[DRY RUN] Routing to spec-agent.',
     planSteps: [
-      { step: 1, agent: 'spec-agent', description: 'Refine stories and write acceptance criteria' },
-      { step: 2, agent: 'dev-agent',  description: 'Implement components from refined spec' },
-      { step: 3, agent: 'review-agent', description: 'Code review pass' },
-      { step: 4, agent: 'qa-agent',   description: 'Generate unit tests' },
-      { step: 5, agent: 'docs-agent', description: 'Generate component docs' },
+      { step: 1, agent: 'spec-agent',    description: 'Refine stories and write acceptance criteria' },
+      { step: 2, agent: 'dev-agent',     description: 'Implement components from refined spec' },
+      { step: 3, agent: 'review-agent',  description: 'Code review pass' },
+      { step: 4, agent: 'qa-agent',      description: 'Generate unit tests' },
+      { step: 5, agent: 'docs-agent',    description: 'Generate component docs' },
     ],
+    type: 'plan',
+    stories: [
+      { id: 'story-1', title: 'User Registration', description: 'User can register with email and password', complexity: 'M', agentSequence: ['spec-agent','dev-agent','review-agent','qa-agent','docs-agent'] },
+      { id: 'story-2', title: 'User Login',         description: 'User can log in with email and password',  complexity: 'S', agentSequence: ['spec-agent','dev-agent','review-agent','qa-agent','docs-agent'] },
+    ],
+    sessionGoal: 'Build registration and login flows',
+    totalStories: 2,
+    remainingAfterSession: 0,
   }),
+
   'spec-agent': `// filepath: specs/refined-stories.md
 # Refined Stories — DRY RUN
 
-## Story 1: User Login
-As a user I can log in with email and password so that I can access my account.
+## Story 1: User Registration
+As a new user I can register with email and password so that I can create an account.
 
 Acceptance Criteria:
 - Email validates format on blur
-- Password required, min 8 characters
-- Submit disabled until both fields valid
-- On success: token stored, redirect to /dashboard
-- On failure: "Invalid email or password" shown inline
-- Loading state shown during API call
+- Password min 8 characters, confirm must match
+- Submit disabled until valid
+- On success: account created, redirect to /login
+- On failure: inline error shown
 
 // filepath: specs/acceptance-criteria.md
 # Acceptance Criteria — DRY RUN
 
-STORY 1: Login
-  GIVEN valid credentials WHEN I click Sign In THEN redirected to /dashboard
-  GIVEN invalid credentials WHEN I click Sign In THEN error shown inline`,
+STORY 1: Registration
+  GIVEN valid fields WHEN I click Register THEN account created, redirected to /login
+  GIVEN invalid email WHEN I blur email THEN format error shown inline`,
 
-  'dev-agent': `// filepath: src/components/LoginForm/LoginForm.tsx
+  'dev-agent': `// filepath: src/components/RegisterForm/RegisterForm.tsx
 import React, { useState } from 'react';
 
-interface LoginFormProps {
+interface RegisterFormProps {
   onSuccess: () => void;
 }
 
-export const LoginForm: React.FC<LoginFormProps> = ({ onSuccess }) => {
+export const RegisterForm: React.FC<RegisterFormProps> = ({ onSuccess }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -147,28 +102,27 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSuccess }) => {
     e.preventDefault();
     setLoading(true);
     try {
-      // API call here
       onSuccess();
     } catch {
-      setError('Invalid email or password');
+      setError('Registration failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} aria-label="Login form">
+    <form onSubmit={handleSubmit} aria-label="Registration form">
       <input type="email" value={email} onChange={e => setEmail(e.target.value)} aria-label="Email" />
       <input type="password" value={password} onChange={e => setPassword(e.target.value)} aria-label="Password" />
       {error && <p role="alert">{error}</p>}
       <button type="submit" disabled={loading || !email || !password}>
-        {loading ? 'Signing in...' : 'Sign In'}
+        {loading ? 'Registering...' : 'Register'}
       </button>
     </form>
   );
 };
 
-export default LoginForm;`,
+export default RegisterForm;`,
 
   'review-agent': `## Code Review — DRY RUN
 
@@ -180,46 +134,33 @@ Components follow the established pattern. No architectural violations.
 - Error handling present
 - Loading states implemented
 
-### Pattern Compliance: PASS
-- Named + default exports on all files
-- Functional components only
-- No class components
-
 **Overall: PASS — recommend proceeding to QA**`,
 
-  'qa-agent': `// filepath: tests/LoginForm.test.tsx
-import { render, screen, fireEvent } from '@testing-library/react';
-import { LoginForm } from '../src/components/LoginForm/LoginForm';
+  'qa-agent': `// filepath: tests/RegisterForm.test.tsx
+import { render, screen } from '@testing-library/react';
+import { RegisterForm } from '../src/components/RegisterForm/RegisterForm';
 
-describe('LoginForm', () => {
+describe('RegisterForm', () => {
   it('renders email and password fields', () => {
-    render(<LoginForm onSuccess={jest.fn()} />);
+    render(<RegisterForm onSuccess={jest.fn()} />);
     expect(screen.getByLabelText('Email')).toBeInTheDocument();
     expect(screen.getByLabelText('Password')).toBeInTheDocument();
   });
-
   it('disables submit when fields empty', () => {
-    render(<LoginForm onSuccess={jest.fn()} />);
+    render(<RegisterForm onSuccess={jest.fn()} />);
     expect(screen.getByRole('button')).toBeDisabled();
   });
 });`,
 
-  'docs-agent': `// filepath: docs/components/LoginForm.md
-# LoginForm
+  'docs-agent': `// filepath: docs/components/RegisterForm.md
+# RegisterForm
 
-Login form component with email/password validation and loading state.
+Registration form with email/password validation and loading state.
 
 ## Props
-
 | Prop | Type | Required | Description |
 |------|------|----------|-------------|
-| onSuccess | () => void | Yes | Called after successful login |
-
-## Usage
-
-\`\`\`tsx
-<LoginForm onSuccess={() => navigate('/dashboard')} />
-\`\`\``,
+| onSuccess | () => void | Yes | Called after successful registration |`,
 
   'quality-scorer': JSON.stringify({
     scores: { spec_compliance: 88, pattern_compliance: 85, guardrail_compliance: 100, completeness: 82 },
@@ -235,99 +176,46 @@ Login form component with email/password validation and loading state.
 };
 
 // ---------------------------------------------------------------------------
-// Provider call helpers
+// OpenRouter API call
 // ---------------------------------------------------------------------------
 
-// Anthropic SDK — non-streaming (uses cached client per key)
-async function callAnthropicSync(key, model, system, messages, maxTokens) {
-  return getAnthropicClient(key).messages.create({ model, max_tokens: maxTokens, system, messages });
-}
+async function callOpenRouter(model, system, messages, maxTokens) {
+  const key = process.env.OPENROUTER_API_KEY;
+  if (!key) throw new Error('OPENROUTER_API_KEY not set. Add it to your .env file.');
 
-// Anthropic SDK — streaming (returns stream handle; caller attaches listeners)
-function callAnthropicStream(key, model, system, messages, maxTokens) {
-  return getAnthropicClient(key).messages.stream({ model, max_tokens: maxTokens, system, messages });
-}
-
-// OpenRouter — non-streaming (OpenAI-compatible REST API via native fetch)
-async function callOpenRouter(key, model, system, messages, maxTokens) {
-  const baseUrl = process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1';
-  const orModel = getOpenRouterModel(model);
-
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${key}`,
       'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://glowing-spoon.local',
+      'HTTP-Referer': 'https://github.com/jazgitt/glowing-spoon',
       'X-Title': 'Glowing Spoon',
     },
     body: JSON.stringify({
-      model: orModel,
+      model,
       messages: [{ role: 'system', content: system }, ...messages],
       max_tokens: maxTokens,
     }),
   });
 
   if (!response.ok) {
-    const err = new Error(`OpenRouter HTTP ${response.status}`);
+    const body = await response.text().catch(() => '');
+    const err = new Error(`OpenRouter ${response.status}: ${body.slice(0, 200)}`);
     err.status = response.status;
     throw err;
   }
 
   const data = await response.json();
+  if (!data.choices?.length) throw new Error(`OpenRouter: no choices in response (model=${model})`);
+  if (!data.usage)           throw new Error(`OpenRouter: missing usage in response (model=${model})`);
 
-  if (!data.choices?.length) {
-    throw new Error(`OpenRouter: no choices in response (model=${orModel})`);
-  }
-  if (!data.usage) {
-    throw new Error(`OpenRouter: missing usage object in response (model=${orModel})`);
-  }
-
-  // Normalize to Anthropic response shape so callers need no provider awareness
   return {
     content: [{ text: data.choices[0].message?.content ?? '' }],
     usage: {
-      input_tokens: data.usage.prompt_tokens,
+      input_tokens:  data.usage.prompt_tokens,
       output_tokens: data.usage.completion_tokens,
     },
   };
-}
-
-// ---------------------------------------------------------------------------
-// Fallback orchestration
-// ---------------------------------------------------------------------------
-
-// Try each key in order. Retries on 429/401/403 (key problem).
-// Any other error is rethrown immediately (not a key issue).
-async function callWithFallback(model, system, messages, maxTokens) {
-  const keys = getApiKeys();
-  if (keys.length === 0) {
-    throw new Error('No API keys configured. Set API_KEY_1 or ANTHROPIC_API_KEY in .env');
-  }
-
-  let lastErr;
-  for (const { key, provider } of keys) {
-    try {
-      if (provider === 'openrouter') {
-        return await callOpenRouter(key, model, system, messages, maxTokens);
-      }
-      return await callAnthropicSync(key, model, system, messages, maxTokens);
-    } catch (err) {
-      const status = err.status ?? err.error?.status;
-      if (RETRYABLE_STATUSES.has(status)) {
-        out.warn(`[${provider}] key failed with ${status} — trying next key`);
-        lastErr = err;
-        continue;
-      }
-      throw err;
-    }
-  }
-  throw lastErr ?? new Error('All API keys exhausted');
-}
-
-// For streaming: use the first Anthropic key (streaming is Anthropic-only).
-function findFirstAnthropicKey() {
-  return getApiKeys().find(k => k.provider === 'anthropic')?.key ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -343,27 +231,21 @@ export async function callClaude({
   sessionId,
   conversationHistory,
   specs,
-  stream = false,
   dryRun,
 }) {
   const isDryRun = dryRun ?? config.dryRun;
+  const model = getModel(agentId);
 
   if (isDryRun) {
     const text = DRY_RUN_RESPONSES[agentId] ?? `[DRY RUN] ${agentId} response placeholder.`;
     out.log(agentId, `[dry-run] skipping API call`);
-    await trackCost({
-      sessionId, tenantId, projectId, agentId,
-      model: AGENT_MODEL[agentId] ?? 'claude-sonnet-4-20250514',
-      usage: { input_tokens: 1000, output_tokens: 500 },
-    });
+    await trackCost({ sessionId, tenantId, projectId, agentId, model, usage: { input_tokens: 1000, output_tokens: 500 } });
     return { content: [{ text }] };
   }
 
-  const model = AGENT_MODEL[agentId] ?? 'claude-sonnet-4-20250514';
-
   const declaredNeeds = AGENT_CONTEXT_NEEDS[agentId];
   if (declaredNeeds === undefined) {
-    out.warn(`[claude] unknown agentId "${agentId}" — no vault needs declared. Using defaults.`);
+    out.warn(`[claude] unknown agentId "${agentId}" — using default vault needs`);
   }
   const vaultNeeds = declaredNeeds ?? ['guardrails', 'patterns'];
 
@@ -375,8 +257,7 @@ export async function callClaude({
     ? `═══ CONTEXT VAULT ═══\n${vault}\n\n═══ AGENT INSTRUCTIONS ═══\n${systemPrompt}`.trim()
     : systemPrompt.trim();
 
-  const specSection = specs ? `\n\n═══ RELEVANT SPECS ═══\n${specs}` : '';
-  const finalSystem = fullSystem + specSection;
+  const finalSystem = fullSystem + (specs ? `\n\n═══ RELEVANT SPECS ═══\n${specs}` : '');
 
   let history = conversationHistory || [];
   const totalEstimate = estimateTokens(finalSystem)
@@ -393,37 +274,11 @@ export async function callClaude({
 
   const messages = [...history, { role: 'user', content: userPrompt }];
 
-  // HIGH-2: pre-call budget check — refuse before spending a cent if this call would
-  // push total cost over the session budget. estimatedInputTokens is approximate (~4
-  // chars/token); checkBudgetBefore adds a MAX_TOKENS_OUT cushion for output.
+  // HIGH-2: pre-call budget check before any spend
   const estimatedInputTokens = estimateTokens(finalSystem) + estimateTokens(JSON.stringify(messages));
   await checkBudgetBefore({ tenantId, projectId, model, estimatedInputTokens });
 
-  // Streaming: Anthropic keys only, first available, no key fallback mid-stream
-  if (stream) {
-    const anthropicKey = findFirstAnthropicKey();
-    if (!anthropicKey) throw new Error('Streaming requires an Anthropic key (sk-ant-*). No Anthropic key found in API_KEY_N list.');
-    const stream_ = callAnthropicStream(anthropicKey, model, finalSystem, messages, MAX_TOKENS_OUT);
-    stream_.on('text', (chunk) => out.chunk(chunk));
-    stream_.on('error', (err) => out.warn(`[stream] error mid-flight: ${err.message}`));
-    stream_.on('message', async (finalMessage) => {
-      out.chunkEnd();
-      // HIGH-2 note: the pre-call checkBudgetBefore guard (above) blocks calls that
-      // would overshoot budget. trackCost here is post-billing accounting only;
-      // COST_BUDGET_EXCEEDED after streaming means we've already paid — log it and
-      // stop future calls via the session total (next pre-call check will catch it).
-      try {
-        await trackCost({ sessionId, tenantId, projectId, agentId, model, usage: finalMessage.usage });
-      } catch (e) {
-        out.blocked(`[stream] ${e.message}`);
-        out.pending('Budget reached during streaming. No further calls will be dispatched.');
-      }
-    });
-    return stream_;
-  }
-
-  // Non-streaming: full key fallback
-  const response = await callWithFallback(model, finalSystem, messages, MAX_TOKENS_OUT);
+  const response = await callOpenRouter(model, finalSystem, messages, MAX_TOKENS_OUT);
   await trackCost({ sessionId, tenantId, projectId, agentId, model, usage: response.usage });
   return response;
 }

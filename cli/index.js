@@ -6,9 +6,8 @@ import { program } from 'commander';
 // stop/plan run freely so users can manage sessions without having an API key configured yet.
 const API_REQUIRED_COMMANDS = new Set(['run', 'resume']);
 const firstArg = process.argv[2];
-const hasKey = process.env.ANTHROPIC_API_KEY || process.env.API_KEY_1;
-if (API_REQUIRED_COMMANDS.has(firstArg) && !hasKey) {
-  console.error('[ERROR] No API key configured. Set API_KEY_1 (or ANTHROPIC_API_KEY) in your .env file.');
+if (API_REQUIRED_COMMANDS.has(firstArg) && !process.env.OPENROUTER_API_KEY) {
+  console.error('[ERROR] OPENROUTER_API_KEY not set. Copy .env.example to .env and add your key.');
   process.exit(1);
 }
 import { registerWorkspaceCommands } from './commands/workspace.js';
