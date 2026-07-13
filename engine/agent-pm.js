@@ -72,6 +72,10 @@ export class AgentPM {
   plan() {
     return this.think(
       'Analyze all specs. Select the next 5-8 stories to execute this session. ' +
+      'Every planned story MUST correspond to a story that exists in the specs — ' +
+      'reuse the spec story titles and include each story\'s acceptance criteria in its description. ' +
+      'Do NOT invent infrastructure or setup stories (database setup, project scaffolding, tooling); ' +
+      'that work happens inside the first story that needs it. ' +
       'Prioritise by: dependencies first, then complexity low-to-high. ' +
       'Do not plan more than 8 stories per session. ' +
       'Remaining stories will be picked up in subsequent sessions. ' +

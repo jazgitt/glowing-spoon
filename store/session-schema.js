@@ -22,11 +22,16 @@ export function createSession({ tenantId, projectId, costBudget = 5.00, dryRun =
     completedSteps: [],
 
     agents: {
-      'spec-agent':   { status: 'idle', retryCount: 0, scores: [], skillsLoaded: [] },
-      'dev-agent':    { status: 'idle', retryCount: 0, scores: [], skillsLoaded: [] },
-      'review-agent': { status: 'idle', retryCount: 0, scores: [], skillsLoaded: [] },
-      'qa-agent':     { status: 'idle', retryCount: 0, scores: [], skillsLoaded: [] },
-      'docs-agent':   { status: 'idle', retryCount: 0, scores: [], skillsLoaded: [] },
+      'spec-agent':        { status: 'idle', retryCount: 0, scores: [], skillsLoaded: [] },
+      'dev-agent':         { status: 'idle', retryCount: 0, scores: [], skillsLoaded: [] },
+      'integration-agent': { status: 'idle', retryCount: 0, scores: [], skillsLoaded: [] },
+      'review-agent':      { status: 'idle', retryCount: 0, scores: [], skillsLoaded: [] },
+      'qa-agent':          { status: 'idle', retryCount: 0, scores: [], skillsLoaded: [] },
+      'docs-agent':        { status: 'idle', retryCount: 0, scores: [], skillsLoaded: [] },
+      'cost-agent':        { status: 'idle', retryCount: 0, scores: [], skillsLoaded: [] },
+      'compliance-agent':  { status: 'idle', retryCount: 0, scores: [], skillsLoaded: [] },
+      'pitch-agent':       { status: 'idle', retryCount: 0, scores: [], skillsLoaded: [] },
+      'teardown-agent':    { status: 'idle', retryCount: 0, scores: [], skillsLoaded: [] },
     },
 
     pmFeedback: [],

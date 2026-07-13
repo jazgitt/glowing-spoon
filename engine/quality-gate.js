@@ -3,10 +3,26 @@ import * as out from '../utils/output.js';
 
 const PASS_THRESHOLD = { dimension: 75, overall: 80 };
 
+// What each agent is responsible for producing. The scorer must judge output
+// against the agent's ROLE, not the whole story — a qa-agent that produces only
+// tests is doing its job, not missing the implementation.
+const AGENT_ROLES = {
+  'spec-agent':        'Refined user stories and acceptance criteria. Do NOT expect implementation code.',
+  'dev-agent':         'Implementation code fulfilling the spec.',
+  'integration-agent': 'Third-party integration scaffolding code only. Do NOT expect the rest of the application.',
+  'review-agent':      'A code review document. Score the QUALITY OF THE REVIEW itself — accuracy and coverage of findings. A review that correctly identifies real problems in the code is a GOOD output and must score HIGH. Do NOT score the reviewed code.',
+  'qa-agent':          'Test files only. The implementation is INPUT to this agent, not its output — do NOT penalize missing implementation files.',
+  'docs-agent':        'Documentation files for the provided code.',
+};
+
 export async function runQualityGate({ agentId, output, spec, session }) {
+  const role = AGENT_ROLES[agentId] ?? 'Output appropriate to the agent\'s task.';
   const response = await callClaude({
-    systemPrompt: 'You are a quality scorer. Evaluate agent output against the spec. Return ONLY valid JSON — no explanation, no markdown fences.',
+    systemPrompt: 'You are a quality scorer. Evaluate agent output strictly against that agent\'s role and the spec. Return ONLY valid JSON — no explanation, no markdown fences.',
     userPrompt: `Agent: ${agentId}
+This agent's sole responsibility: ${role}
+Score ONLY whether the output fulfills that responsibility. Never penalize the absence of deliverables that belong to other agents.
+
 Spec provided to agent:
 ${spec}
 
@@ -14,10 +30,10 @@ Agent output to score:
 ${typeof output === 'string' ? output : JSON.stringify(output)}
 
 Score each dimension 0–100:
-- spec_compliance: does output fulfill the spec?
-- pattern_compliance: follows coding/writing conventions?
+- spec_compliance: does output fulfill this agent's responsibility for the spec?
+- pattern_compliance: follows coding/writing conventions applicable to this output type?
 - guardrail_compliance: violates any guardrails? (100 = no violations)
-- completeness: anything missing from the spec?
+- completeness: anything missing from THIS AGENT's responsibility? (not the whole story)
 
 Threshold: all dimensions >= ${PASS_THRESHOLD.dimension}, overall >= ${PASS_THRESHOLD.overall}
 

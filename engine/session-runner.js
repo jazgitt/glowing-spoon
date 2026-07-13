@@ -1,8 +1,14 @@
 import { runSpecAgent } from '../agents/spec-agent/index.js';
 import { runDevAgent } from '../agents/dev-agent/index.js';
+import { runIntegrationAgent, needsIntegration } from '../agents/integration-agent/index.js';
 import { runReviewAgent } from '../agents/review-agent/index.js';
 import { runQAAgent } from '../agents/qa-agent/index.js';
 import { runDocsAgent } from '../agents/docs-agent/index.js';
+import { runCostAgent } from '../agents/cost-agent/index.js';
+import { runComplianceAgent } from '../agents/compliance-agent/index.js';
+import { runPitchAgent } from '../agents/pitch-agent/index.js';
+import { runTeardownAgent } from '../agents/teardown-agent/index.js';
+import { readOutputDigest } from './output-store.js';
 import {
   setSessionStatus, recordAgentStart, recordAgentComplete, recordAgentRetry,
   addToAttentionQueue, syncAgentPMHistory, setPipelineCursor, archiveSession, shouldStop,
@@ -76,7 +82,22 @@ async function haltSession(session) {
 // Public entry point — handles fresh runs and resumes via pipeline cursor.
 // ---------------------------------------------------------------------------
 
+// Any unhandled throw (provider 403s, COST_BUDGET_EXCEEDED, network) must leave
+// the session in a resumable 'stopped' state — never stranded at 'executing'.
 export async function runSession(session, agentPM) {
+  try {
+    await runSessionInner(session, agentPM);
+  } catch (err) {
+    out.error(`Session halted: ${err.message}`);
+    out.log('session', `Progress saved at story ${session.pipeline.storyIndex + 1}, stage: ${session.pipeline.stage}.`);
+    out.pending(`Fix the cause, then: glowing-spoon resume --session ${session.sessionId}`);
+    await setSessionStatus(session, 'stopped');
+    await archiveSession(session);
+    process.exitCode = 1;
+  }
+}
+
+async function runSessionInner(session, agentPM) {
   // Restore dry-run from persisted session state (needed when spawned as child process).
   if (session.dryRun) config.dryRun = true;
 
@@ -158,7 +179,15 @@ export async function runSession(session, agentPM) {
       && session.pipeline.stage === 'checkpoint';
 
     await runStoryPipeline(session, agentPM, story, i, resumeAtCheckpoint);
+
+    // A timeout inside the story (checkpoint or escalation) marks the session
+    // stopped — do not keep burning budget on the remaining stories.
+    if (session.status === 'stopped') return;
   }
+
+  // --- MVP Report phase ---
+  if (await shouldStop(session)) { await haltSession(session); return; }
+  await runMvpReport(session);
 
   // --- Done ---
   const final = await getSession(session.tenantId, session.projectId);
@@ -235,6 +264,47 @@ async function runStoryPipeline(session, agentPM, story, storyIndex, resumeAtChe
   }
 }
 
+// ---------------------------------------------------------------------------
+// MVP Report phase — SME deliverables generated once, after all stories:
+// run-cost estimate, compliance checklist, pitch materials, build teardown.
+// Report agents are informational: fast model, no quality gate.
+// ---------------------------------------------------------------------------
+
+async function runMvpReport(session) {
+  out.divider();
+  out.header('MVP Report — run-cost, compliance, pitch, teardown');
+
+  const digest = await readOutputDigest({ tenantId: session.tenantId, projectId: session.projectId });
+  if (!digest) {
+    out.warn('No output found to report on — skipping MVP report.');
+    return;
+  }
+
+  await runAgentWithRetry({
+    agentId: 'cost-agent', session,
+    agentFn: (fb) => runCostAgent({ session, digest, pmFeedback: fb }),
+  });
+
+  await runAgentWithRetry({
+    agentId: 'compliance-agent', session,
+    agentFn: (fb) => runComplianceAgent({ session, digest, pmFeedback: fb }),
+  });
+
+  await runAgentWithRetry({
+    agentId: 'pitch-agent', session,
+    agentFn: (fb) => runPitchAgent({ session, digest, pmFeedback: fb }),
+  });
+
+  const current = await getSession(session.tenantId, session.projectId);
+  const sessionCost = (current?.tokenUsage?.total ?? session.tokenUsage?.total ?? 0).toFixed(4);
+  await runAgentWithRetry({
+    agentId: 'teardown-agent', session,
+    agentFn: (fb) => runTeardownAgent({ session, digest, sessionCost, pmFeedback: fb }),
+  });
+
+  out.log('session', 'MVP report written to output/report/');
+}
+
 // Checkpoint pause: wait for PM approval before running review/qa/docs.
 // On reject: re-run dev with feedback, then recurse back to checkpoint.
 async function runCheckpoint(session, agentPM, story, storyIndex, devInput, codeInput, taskDescription) {
@@ -289,9 +359,30 @@ async function runReviewQaDocs(session, agentPM, story, devInput, codeInput) {
   await processInbox(session, agentPM);
   if (await shouldStop(session)) { await haltSession(session); return; }
 
+  // --- Integration (conditional: only when the spec signals third-party services) ---
+  let fullCode = codeInput;
+  if (needsIntegration(devInput)) {
+    const integrationOutput = await runAgentWithRetry({
+      agentId: 'integration-agent', session,
+      agentFn: (fb, errs) => runIntegrationAgent({
+        session, spec: devInput, code: codeInput,
+        taskDescription: story.title ?? 'Scaffold third-party integrations',
+        pmFeedback: fb, syntaxErrors: errs ?? [],
+      }),
+      handleSyntaxErrors: true,
+    });
+    if (integrationOutput) {
+      // Review/QA/docs cover the integration code alongside the dev output.
+      fullCode = sanitizeAgentOutput(`${codeInput}\n\n${integrationOutput.outputText}`);
+    }
+  }
+
+  await processInbox(session, agentPM);
+  if (await shouldStop(session)) { await haltSession(session); return; }
+
   await runAgentWithRetry({
     agentId: 'review-agent', session,
-    agentFn: (fb) => runReviewAgent({ session, code: codeInput, spec: devInput, pmFeedback: fb }),
+    agentFn: (fb) => runReviewAgent({ session, code: fullCode, spec: devInput, pmFeedback: fb }),
   });
 
   await processInbox(session, agentPM);
@@ -299,7 +390,7 @@ async function runReviewQaDocs(session, agentPM, story, devInput, codeInput) {
 
   const qaOutput = await runAgentWithRetry({
     agentId: 'qa-agent', session,
-    agentFn: (fb) => runQAAgent({ session, spec: devInput, code: codeInput, pmFeedback: fb }),
+    agentFn: (fb) => runQAAgent({ session, spec: devInput, code: fullCode, pmFeedback: fb }),
   });
 
   await processInbox(session, agentPM);
@@ -308,7 +399,7 @@ async function runReviewQaDocs(session, agentPM, story, devInput, codeInput) {
   await runAgentWithRetry({
     agentId: 'docs-agent', session,
     agentFn: (fb) => runDocsAgent({
-      session, spec: devInput, code: codeInput,
+      session, spec: devInput, code: fullCode,
       tests: qaOutput?.outputText ?? '', pmFeedback: fb,
     }),
   });
@@ -318,11 +409,58 @@ async function runReviewQaDocs(session, agentPM, story, devInput, codeInput) {
 // Agent retry wrapper — quality gate + syntax error retry logic.
 // ---------------------------------------------------------------------------
 
+// Escalation blocks for PM action (principle 8): approve = skip this story,
+// reject --feedback = give the agent direction and a fresh set of retries.
+// Returns the PM response, or null on timeout (session marked stopped).
+async function escalateAndWait(session, { agentId, failureType, issues }) {
+  await addToAttentionQueue(session, {
+    type: 'agent:escalated', attention: 'BLOCKING',
+    agent: agentId, failureType, issues,
+  });
+  await writePending(session.tenantId, session.projectId, {
+    type: 'escalation', agent: agentId, failureType, issues,
+  });
+  out.pending(`Skip story:  glowing-spoon approve --session ${session.sessionId}`);
+  out.pending(`Give fix:    glowing-spoon reject  --session ${session.sessionId} --feedback "direction for ${agentId}"`);
+
+  try {
+    return await pollResponse(session.tenantId, session.projectId);
+  } catch (err) {
+    if (err.message === 'POLL_TIMEOUT') {
+      out.error('No PM response to escalation within timeout. Session stopped.');
+      await setSessionStatus(session, 'stopped');
+      await archiveSession(session);
+      return null;
+    }
+    throw err;
+  }
+}
+
 async function runAgentWithRetry({ agentId, session, agentFn, handleSyntaxErrors = false }) {
+  // Sessions persisted before an agent existed lack its registry entry — backfill.
+  session.agents[agentId] ??= { status: 'idle', retryCount: 0, scores: [], skillsLoaded: [] };
+
   let feedback = [];
   let syntaxErrors = [];
+  let attempt = 0;
 
-  for (let attempt = 0; attempt <= 2; attempt++) {
+  // Applies the PM's escalation decision. Returns true to restart attempts with
+  // the PM's feedback, false to skip the story (timeout or explicit approve).
+  async function pmDecidesRetry(failureType, issues) {
+    const response = await escalateAndWait(session, { agentId, failureType, issues });
+    if (response?.action === 'reject' && response.feedback) {
+      out.log(agentId, `PM direction: ${response.feedback}`);
+      feedback = [response.feedback];
+      syntaxErrors = [];
+      attempt = 0;
+      session.agents[agentId].retryCount = 0; // quality gate keys retries off this
+      return true;
+    }
+    if (response) out.warn(`[${agentId}] PM chose to skip this story.`);
+    return false;
+  }
+
+  while (attempt <= 2) {
     await recordAgentStart(session, agentId);
     const result = await agentFn(feedback, syntaxErrors);
 
@@ -331,13 +469,11 @@ async function runAgentWithRetry({ agentId, session, agentFn, handleSyntaxErrors
         syntaxErrors = result.syntaxErrors;
         feedback = result.syntaxErrors.map(e => `Syntax error in ${e.file} line ${e.line}: ${e.error}`);
         await recordAgentRetry(session, agentId, 'syntax errors');
+        attempt++;
         continue;
       }
       out.error(`[${agentId}] Syntax errors persist after 2 retries — escalating`);
-      await addToAttentionQueue(session, {
-        type: 'agent:escalated', attention: 'BLOCKING',
-        agent: agentId, failureType: 'SYNTAX_ERROR', issues: result.syntaxErrors,
-      });
+      if (await pmDecidesRetry('SYNTAX_ERROR', result.syntaxErrors)) continue;
       return null;
     }
 
@@ -351,14 +487,12 @@ async function runAgentWithRetry({ agentId, session, agentFn, handleSyntaxErrors
     if (gateResult.action === 'retry' && attempt < 2) {
       feedback = [...(gateResult.feedback ?? []), ...(gateResult.suggestions ?? [])];
       await recordAgentRetry(session, agentId, gateResult.feedback?.join('; ') ?? 'quality gate fail');
+      attempt++;
       continue;
     }
 
     out.blocked(`[${agentId}] Quality gate failed permanently — escalating to PM`);
-    await addToAttentionQueue(session, {
-      type: 'quality:failed', attention: 'BLOCKING',
-      agent: agentId, scores: gateResult.scores, issues: gateResult.issues,
-    });
+    if (await pmDecidesRetry('QUALITY_GATE_PERMANENT', gateResult.issues)) continue;
     return null;
   }
 

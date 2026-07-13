@@ -24,6 +24,49 @@ export async function saveAgentOutput({ tenantId, projectId, files }) {
   }
 }
 
+// Build a capped digest of everything in output/ for the MVP report agents.
+// Full content for specs and docs; file list + first lines for code.
+export async function readOutputDigest({ tenantId, projectId, maxChars = 40_000 }) {
+  const outputPath = path.resolve(getWorkspacePath(tenantId, projectId), 'output');
+
+  async function walk(dir) {
+    const results = [];
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return results;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'report') continue; // don't feed reports back into reports
+        results.push(...await walk(full));
+      } else {
+        results.push(full);
+      }
+    }
+    return results;
+  }
+
+  const files = await walk(outputPath);
+  const sections = [];
+  for (const file of files) {
+    const rel = path.relative(outputPath, file).split(path.sep).join('/');
+    let content;
+    try {
+      content = await fs.readFile(file, 'utf8');
+    } catch {
+      continue;
+    }
+    const isProse = rel.endsWith('.md');
+    const cap = isProse ? 4_000 : 1_500;
+    sections.push(`### ${rel}\n${content.slice(0, cap)}`);
+  }
+
+  return sections.join('\n\n').slice(0, maxChars);
+}
+
 // Parse agent output text into { relativePath, content }[] using filepath comments.
 // Silently drops any path that is absolute or attempts directory traversal.
 export function parseFilesFromOutput(text) {

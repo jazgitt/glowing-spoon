@@ -81,9 +81,14 @@ function getWorkspacePath(tenantId, projectId) {
   /agents
     /spec-agent/index.js + /skills
     /dev-agent/index.js  + /skills
+    /integration-agent/index.js + /skills   ← third-party scaffolds (Stripe, OAuth, ...)
     /review-agent/index.js + /skills
     /qa-agent/index.js   + /skills
     /docs-agent/index.js + /skills
+    /cost-agent/index.js + /skills          ← MVP report: monthly run-cost estimate
+    /compliance-agent/index.js + /skills    ← MVP report: GDPR/PCI/a11y checklist
+    /pitch-agent/index.js + /skills         ← MVP report: one-pager, demo script, pricing
+    /teardown-agent/index.js + /skills      ← MVP report: agency/freelancer comparison
 
   /utils
     claude.js                        ← ONLY file that calls Anthropic API
@@ -137,6 +142,9 @@ Follow exactly. Read the referenced guardrails file before building each step.
 15. agents/dev-agent/index.js
 16. agents/review-agent/index.js
 17. agents/qa-agent/index.js
+17b. agents/integration-agent/index.js  → guardrails/sme-agents.md
+17c. agents/cost-agent + compliance-agent
+     + pitch-agent + teardown-agent      → guardrails/sme-agents.md
 18. engine/agent-pm.js               → guardrails/agent-pm.md
 19. cli/commands/workspace.js        → guardrails/cli.md
 20. cli/commands/session.js          → guardrails/cli.md

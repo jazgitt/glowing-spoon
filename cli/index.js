@@ -6,7 +6,8 @@ import { program } from 'commander';
 // stop/plan run freely so users can manage sessions without having an API key configured yet.
 const API_REQUIRED_COMMANDS = new Set(['run', 'resume']);
 const firstArg = process.argv[2];
-if (API_REQUIRED_COMMANDS.has(firstArg) && !process.env.OPENROUTER_API_KEY) {
+const isDryRun = process.argv.includes('--dry-run');
+if (API_REQUIRED_COMMANDS.has(firstArg) && !isDryRun && !process.env.OPENROUTER_API_KEY) {
   console.error('[ERROR] OPENROUTER_API_KEY not set. Copy .env.example to .env and add your key.');
   process.exit(1);
 }

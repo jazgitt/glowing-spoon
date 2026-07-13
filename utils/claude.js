@@ -14,7 +14,7 @@ const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL || 'https://openrout
 
 // Agents that need multi-step reasoning use the reasoning model.
 // Mechanical agents (scoring, routing, compression) use the fast model.
-const REASONING_AGENTS = new Set(['agent-pm', 'spec-agent', 'dev-agent', 'review-agent']);
+const REASONING_AGENTS = new Set(['agent-pm', 'spec-agent', 'dev-agent', 'integration-agent', 'review-agent']);
 
 function getModel(agentId) {
   return REASONING_AGENTS.has(agentId)
@@ -33,6 +33,11 @@ export const AGENT_CONTEXT_NEEDS = {
   'review-agent':       ['guardrails', 'patterns', 'architecture'],
   'qa-agent':           ['guardrails', 'patterns', 'stack'],
   'docs-agent':         ['guardrails', 'patterns'],
+  'integration-agent':  ['guardrails', 'patterns', 'stack'],
+  'cost-agent':         ['guardrails', 'patterns', 'stack'],
+  'compliance-agent':   ['guardrails', 'patterns'],
+  'pitch-agent':        ['guardrails', 'patterns'],
+  'teardown-agent':     ['guardrails', 'patterns', 'stack'],
   'quality-scorer':     ['guardrails', 'patterns'],
   'skill-resolver':     [],
   'history-compressor': [],
@@ -169,6 +174,52 @@ Registration form with email/password validation and loading state.
     issues: [],
     suggestions: ['Consider adding more edge case handling'],
   }),
+
+  'integration-agent': `// filepath: src/integrations/stripe/checkout.js
+// DRY RUN — Stripe Checkout scaffold
+// Setup: add STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET to .env
+export async function createCheckoutSession(priceId) {
+  return { url: 'https://checkout.stripe.com/dry-run' };
+}`,
+
+  'cost-agent': `// filepath: report/run-cost.md
+# Run-Cost Estimate — DRY RUN
+
+| Users | Hosting | Database | Third-party | Total/mo |
+|---|---|---|---|---|
+| 100 | $0 | $0 | $5 | ~$5 |
+| 1k | $7 | $15 | $25 | ~$47 |
+| 10k | $25 | $50 | $180 | ~$255 |
+
+Biggest lever: per-transaction payment fees.`,
+
+  'compliance-agent': `// filepath: report/compliance-checklist.md
+# Compliance Checklist — DRY RUN
+> Guardrail checklist, not legal advice.
+
+| Item | Status | Fix |
+|---|---|---|
+| Cookie consent | GAP | Add consent banner before analytics load |
+| Card data in app code | PASS | Hosted checkout — out of PCI scope |
+| Form labels | PASS | — |`,
+
+  'pitch-agent': `// filepath: report/pitch-one-pager.md
+# One-Pager — DRY RUN
+
+**Problem:** Small teams lose customers to clunky signup flows.
+**Solution:** A login and registration experience that just works.
+**For:** Independent SaaS founders.
+**Ask:** Try the demo — two minutes, no card.`,
+
+  'teardown-agent': `// filepath: report/build-teardown.md
+# Build Teardown — DRY RUN
+
+| | Agency | Freelancer | This session |
+|---|---|---|---|
+| Cost | $12k–$20k | $4k–$8k | <$5 |
+| Timeline | 4–6 weeks | 3–5 weeks | same day |
+
+Gaps before first customer: monitoring, backups.`,
 
   'skill-resolver': JSON.stringify({ skills: ['refine-story', 'write-acceptance-criteria'] }),
 

@@ -32,6 +32,11 @@ export async function loadSession(sessionId) {
 }
 
 export async function updateSession(session) {
+  // tokenUsage is owned by cost-tracker, which read-modify-writes it on disk after
+  // every API call. The runner's long-lived in-memory session is stale for that field —
+  // adopt the disk copy before saving so a runner write never clobbers spend totals.
+  const onDisk = await getSession(session.tenantId, session.projectId);
+  if (onDisk?.tokenUsage) session.tokenUsage = onDisk.tokenUsage;
   session.updatedAt = Date.now();
   await saveSession(session);
   return session;

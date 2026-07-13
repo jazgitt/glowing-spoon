@@ -1,6 +1,6 @@
 # Glowing Spoon
 
-An AI-native engineering platform. Describe what you want to build — a team of AI agents plans, writes, reviews, tests, and documents it. You approve, reject, and steer from the terminal.
+**The fast MVP builder for small businesses.** Describe what you want to build — a team of AI agents plans it, writes it, reviews it, tests it, documents it, and then does what no dev agency does on day one: estimates your monthly run-cost, checks the compliance basics, writes your pitch materials, and shows you what the same build would have cost elsewhere. You approve, reject, and steer from the terminal.
 
 ```
 glowing-spoon run --project my-app --budget 5.00 --background
@@ -82,15 +82,22 @@ Output lands in `workspaces/local/demo/output/`.
 
 ```
 You describe what to build → Agent PM plans the session
-  → spec-agent  refines each story and writes acceptance criteria
-  → dev-agent   writes the implementation
+  → spec-agent        refines each story and writes acceptance criteria
+  → dev-agent         writes the implementation
   → [YOU review the code and approve or reject]
-  → review-agent checks architecture and code quality
-  → qa-agent    generates unit and integration tests
-  → docs-agent  writes component and API documentation
+  → integration-agent scaffolds Stripe / OAuth / SMS / webhooks (only when the spec needs them)
+  → review-agent      checks architecture and code quality
+  → qa-agent          generates unit and integration tests
+  → docs-agent        writes component and API documentation
+
+After all stories complete, the MVP Report phase runs once:
+  → cost-agent        estimates monthly run-cost at 100 / 1k / 10k users + hosting pick
+  → compliance-agent  GDPR / PCI / accessibility checklist (guardrail, not legal advice)
+  → pitch-agent       one-pager, 3-minute demo script, pricing draft
+  → teardown-agent    what an agency or freelancer would have quoted vs. this session
 ```
 
-Each agent's output is written directly to `output/`. Retries overwrite the previous output — only the latest run is kept.
+Each agent's output is written directly to `output/`. Retries overwrite the previous output — only the latest run is kept. The MVP Report lands in `output/report/`.
 
 A **dev checkpoint** pauses after dev-agent completes so you can read the code before tests and docs are generated. Use `approve` to continue or `reject --feedback` to have dev-agent revise.
 
@@ -215,6 +222,7 @@ glowing-spoon/
   defaults/      Agent PM system prompt (copied into every workspace on init)
   examples/      Seed workspaces (login-app demo)
   guardrails/    Builder documentation — architecture decisions and specs
+                 (sme-agents.md covers integration/cost/compliance/pitch/teardown)
   .env.example   Copy to .env and add your API key
 ```
 
