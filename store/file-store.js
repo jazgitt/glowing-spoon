@@ -150,24 +150,42 @@ export async function getPending(tenantId, projectId) {
 
 const DEFAULT_POLL_TIMEOUT_MS = parseInt(process.env.POLL_TIMEOUT_MS, 10) || 30 * 60 * 1000;
 
+// Only two response shapes exist (written by `approve` and `reject`). Anything else
+// is malformed or tampered — must never be treated as an approval (default-deny).
+function isValidResponse(response) {
+  if (!response || typeof response !== 'object') return false;
+  if (response.action === 'approve') return true;
+  if (response.action === 'reject') {
+    return typeof response.feedback === 'string' && response.feedback.length <= 2000;
+  }
+  return false;
+}
+
 // Blocks until .response.json appears, then returns and cleans up both files.
 // Rejects with Error('POLL_TIMEOUT') if no response arrives within timeoutMs.
+// Rejects with Error('INVALID_PM_RESPONSE') if the response file is malformed.
 export async function pollResponse(tenantId, projectId, intervalMs = 2000, timeoutMs = DEFAULT_POLL_TIMEOUT_MS) {
   const rPath = responseFilePath(tenantId, projectId);
   const pPath = pendingFilePath(tenantId, projectId);
 
   return new Promise((resolve, reject) => {
     const interval = setInterval(async () => {
+      let response;
       try {
         const raw = await fs.readFile(rPath, 'utf8');
-        const response = JSON.parse(raw);
-        clearInterval(interval);
-        clearTimeout(timer);
-        await fs.unlink(rPath).catch(() => {});
-        await fs.unlink(pPath).catch(() => {});
-        resolve(response);
+        response = JSON.parse(raw);
       } catch {
         // File not yet written — keep polling
+        return;
+      }
+      clearInterval(interval);
+      clearTimeout(timer);
+      await fs.unlink(rPath).catch(() => {});
+      await fs.unlink(pPath).catch(() => {});
+      if (isValidResponse(response)) {
+        resolve(response);
+      } else {
+        reject(new Error('INVALID_PM_RESPONSE'));
       }
     }, intervalMs);
 

@@ -6,7 +6,32 @@ import * as out from './output.js';
 
 const MAX_TOKENS_OUT = 8096;
 const CONTEXT_WINDOW = 180_000;
-const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1';
+const DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';
+
+// SECURITY: dotenv loads .env from the current directory, so a malicious .env in an
+// untrusted repo could redirect API calls (and the Bearer key) to an attacker host.
+// Require https for any override and warn loudly the first time it is used.
+let baseUrlWarned = false;
+function getBaseUrl() {
+  const override = process.env.OPENROUTER_BASE_URL;
+  if (!override || override === DEFAULT_BASE_URL) return DEFAULT_BASE_URL;
+
+  let parsed;
+  try {
+    parsed = new URL(override);
+  } catch {
+    throw new Error(`OPENROUTER_BASE_URL is not a valid URL: ${override}`);
+  }
+  const isLoopback = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+  if (parsed.protocol !== 'https:' && !isLoopback) {
+    throw new Error(`OPENROUTER_BASE_URL must use https (got ${override})`);
+  }
+  if (!baseUrlWarned) {
+    out.warn(`OPENROUTER_BASE_URL overridden to ${override} — your API key will be sent to this host.`);
+    baseUrlWarned = true;
+  }
+  return override;
+}
 
 // ---------------------------------------------------------------------------
 // Model selection — two tiers, overridable via env
@@ -234,7 +259,7 @@ async function callOpenRouter(model, system, messages, maxTokens) {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new Error('OPENROUTER_API_KEY not set. Add it to your .env file.');
 
-  const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+  const response = await fetch(`${getBaseUrl()}/chat/completions`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${key}`,

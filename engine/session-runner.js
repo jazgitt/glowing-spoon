@@ -54,6 +54,10 @@ async function pollApproval(session, planText) {
     return await pollResponse(session.tenantId, session.projectId);
   } catch (err) {
     if (err.message === 'POLL_TIMEOUT') return null;
+    if (err.message === 'INVALID_PM_RESPONSE') {
+      out.error('Malformed response file — not treating as approval.');
+      return null;
+    }
     throw err;
   }
 }
@@ -146,6 +150,14 @@ async function runSessionInner(session, agentPM) {
         return;
       }
       plan = revisedPlan;
+    }
+
+    // Default-deny: only an explicit approve starts execution.
+    if (response.action !== 'approve') {
+      out.error(`Unrecognized PM response — session stopped without executing.`);
+      await setSessionStatus(session, 'stopped');
+      await archiveSession(session);
+      return;
     }
 
     const stories = plan.stories?.length > 0
@@ -325,8 +337,10 @@ async function runCheckpoint(session, agentPM, story, storyIndex, devInput, code
   try {
     response = await pollResponse(session.tenantId, session.projectId);
   } catch (err) {
-    if (err.message === 'POLL_TIMEOUT') {
-      out.error('No PM response within timeout. Session stopped at checkpoint.');
+    if (err.message === 'POLL_TIMEOUT' || err.message === 'INVALID_PM_RESPONSE') {
+      out.error(err.message === 'POLL_TIMEOUT'
+        ? 'No PM response within timeout. Session stopped at checkpoint.'
+        : 'Malformed response file — not treating as approval. Session stopped at checkpoint.');
       await setSessionStatus(session, 'stopped');
       await archiveSession(session);
       return false;
@@ -350,6 +364,14 @@ async function runCheckpoint(session, agentPM, story, storyIndex, devInput, code
     const newCodeInput = sanitizeAgentOutput(reDevOutput.outputText);
     await setPipelineCursor(session, storyIndex, 'checkpoint', { devInput, codeInput: newCodeInput });
     return runCheckpoint(session, agentPM, story, storyIndex, devInput, newCodeInput, taskDescription);
+  }
+
+  // Default-deny: only an explicit approve unlocks review/qa/docs.
+  if (response.action !== 'approve') {
+    out.error('Unrecognized PM response — session stopped at checkpoint.');
+    await setSessionStatus(session, 'stopped');
+    await archiveSession(session);
+    return false;
   }
 
   return true;
@@ -426,8 +448,10 @@ async function escalateAndWait(session, { agentId, failureType, issues }) {
   try {
     return await pollResponse(session.tenantId, session.projectId);
   } catch (err) {
-    if (err.message === 'POLL_TIMEOUT') {
-      out.error('No PM response to escalation within timeout. Session stopped.');
+    if (err.message === 'POLL_TIMEOUT' || err.message === 'INVALID_PM_RESPONSE') {
+      out.error(err.message === 'POLL_TIMEOUT'
+        ? 'No PM response to escalation within timeout. Session stopped.'
+        : 'Malformed response file — session stopped.');
       await setSessionStatus(session, 'stopped');
       await archiveSession(session);
       return null;
@@ -456,7 +480,7 @@ async function runAgentWithRetry({ agentId, session, agentFn, handleSyntaxErrors
       session.agents[agentId].retryCount = 0; // quality gate keys retries off this
       return true;
     }
-    if (response) out.warn(`[${agentId}] PM chose to skip this story.`);
+    if (response?.action === 'approve') out.warn(`[${agentId}] PM chose to skip this story.`);
     return false;
   }
 

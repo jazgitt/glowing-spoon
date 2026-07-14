@@ -76,7 +76,12 @@ export async function loadSelectiveVault(tenantId, projectId, needs = []) {
 
   const sections = [];
   for (const need of allNeeds) {
-    const filename = VAULT_FILE_MAP[need] ?? need;
+    // Allowlist only — never use the raw need as a filename (path traversal).
+    const filename = VAULT_FILE_MAP[need];
+    if (!filename) {
+      out.warn(`[vault] unknown vault need "${need}" — skipped`);
+      continue;
+    }
     const filePath = path.join(base, filename);
     try {
       const content = await fs.readFile(filePath, 'utf8');
