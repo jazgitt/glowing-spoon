@@ -34,7 +34,14 @@ function getBaseUrl() {
 }
 
 // ---------------------------------------------------------------------------
-// Model selection — two tiers, overridable via env
+// Model selection
+//
+// Two modes:
+//  1. MODEL_POOL set (comma-separated OpenRouter model ids): ALL agents draw
+//     from the pool round-robin. Rate-limited/unavailable models are skipped;
+//     when every model is down, we wait with backoff and cycle again. Designed
+//     for free-tier models that hit per-model rate limits.
+//  2. MODEL_POOL unset: classic two-tier REASONING_MODEL / FAST_MODEL split.
 // ---------------------------------------------------------------------------
 
 // Agents that need multi-step reasoning use the reasoning model.
@@ -45,6 +52,63 @@ function getModel(agentId) {
   return REASONING_AGENTS.has(agentId)
     ? (process.env.REASONING_MODEL || 'anthropic/claude-sonnet-4')
     : (process.env.FAST_MODEL     || 'anthropic/claude-haiku-4-5');
+}
+
+function getModelPool() {
+  return (process.env.MODEL_POOL || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+// Statuses worth rotating past: rate limit (429), provider overload (5xx/529),
+// timeouts (408), out of credits on a paid model (402 — a free model may still
+// work), and model-not-found (404 — likely a typo for one pool entry).
+// 400/401 are configuration errors: rotating won't help, fail fast.
+const ROTATABLE_STATUS = new Set([402, 404, 408, 429, 500, 502, 503, 529]);
+
+// Give up only after this long with every model failing (default 30 min).
+const MODEL_RETRY_MAX_MS = parseInt(process.env.MODEL_RETRY_MAX_MS, 10) || 30 * 60 * 1000;
+
+let poolCursor = 0;
+
+// Tries each candidate model in round-robin order; on a full failed cycle,
+// waits with exponential backoff and cycles again until MODEL_RETRY_MAX_MS.
+// Returns { response, model } — the model that actually answered.
+async function callWithRotation(agentId, system, messages, maxTokens) {
+  const pool = getModelPool();
+  const candidates = pool.length ? pool : [getModel(agentId)];
+  const startedAt = Date.now();
+  let waitMs = 15_000;
+
+  for (;;) {
+    let lastError;
+    for (let i = 0; i < candidates.length; i++) {
+      const model = candidates[(poolCursor + i) % candidates.length];
+      try {
+        const response = await callOpenRouter(model, system, messages, maxTokens);
+        // Next call starts on the model AFTER the one that answered → round-robin.
+        poolCursor = (poolCursor + i + 1) % candidates.length;
+        return { response, model };
+      } catch (err) {
+        // undefined status = network error (DNS, reset) — worth rotating/retrying.
+        const rotatable = err.status === undefined || ROTATABLE_STATUS.has(err.status);
+        if (!rotatable) throw err;
+        lastError = err;
+        out.warn(`[models] ${model} unavailable (${err.status ?? 'network'}) — ` +
+          (i < candidates.length - 1 ? 'trying next model in pool' : 'pool cycle exhausted'));
+      }
+    }
+
+    const elapsed = Date.now() - startedAt;
+    if (elapsed + waitMs > MODEL_RETRY_MAX_MS) {
+      throw new Error(`MODEL_POOL_EXHAUSTED: no model in [${candidates.join(', ')}] answered within ` +
+        `${Math.round(MODEL_RETRY_MAX_MS / 60_000)} min. Last error: ${lastError?.message ?? 'unknown'}`);
+    }
+    out.warn(`[models] all ${candidates.length} model(s) failed — waiting ${Math.round(waitMs / 1000)}s, then trying again`);
+    await new Promise(resolve => setTimeout(resolve, waitMs));
+    waitMs = Math.min(waitMs * 2, 120_000);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -310,12 +374,11 @@ export async function callClaude({
   dryRun,
 }) {
   const isDryRun = dryRun ?? config.dryRun;
-  const model = getModel(agentId);
 
   if (isDryRun) {
     const text = DRY_RUN_RESPONSES[agentId] ?? `[DRY RUN] ${agentId} response placeholder.`;
     out.log(agentId, `[dry-run] skipping API call`);
-    await trackCost({ sessionId, tenantId, projectId, agentId, model, usage: { input_tokens: 1000, output_tokens: 500 } });
+    await trackCost({ sessionId, tenantId, projectId, agentId, model: getModel(agentId), usage: { input_tokens: 1000, output_tokens: 500 } });
     return { content: [{ text }] };
   }
 
@@ -350,11 +413,14 @@ export async function callClaude({
 
   const messages = [...history, { role: 'user', content: userPrompt }];
 
-  // HIGH-2: pre-call budget check before any spend
+  // HIGH-2: pre-call budget check before any spend. With a pool, check against
+  // the model the round-robin will try first.
+  const pool = getModelPool();
+  const budgetModel = pool.length ? pool[poolCursor % pool.length] : getModel(agentId);
   const estimatedInputTokens = estimateTokens(finalSystem) + estimateTokens(JSON.stringify(messages));
-  await checkBudgetBefore({ tenantId, projectId, model, estimatedInputTokens });
+  await checkBudgetBefore({ tenantId, projectId, model: budgetModel, estimatedInputTokens });
 
-  const response = await callOpenRouter(model, finalSystem, messages, MAX_TOKENS_OUT);
+  const { response, model } = await callWithRotation(agentId, finalSystem, messages, MAX_TOKENS_OUT);
   await trackCost({ sessionId, tenantId, projectId, agentId, model, usage: response.usage });
   return response;
 }

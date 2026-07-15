@@ -5,12 +5,22 @@ import {
   saveSession, getSession, lookupSession, updateAgentPMHistory,
   checkStopFlag, clearStopFlag,
 } from '../store/file-store.js';
-import { validateWorkspace, getWorkspacePath } from '../utils/workspace.js';
+import { validateWorkspace, getWorkspacePath, hasSpecs } from '../utils/workspace.js';
 import { loadProductMd } from './context-loader.js';
 import * as out from '../utils/output.js';
 
 export async function initSession({ tenantId, projectId, costBudget, dryRun = false }) {
   await validateWorkspace(tenantId, projectId);
+
+  // Empty specs make every downstream agent hallucinate requirements and the
+  // planner collapse to one oversized story — refuse before any spend.
+  if (!(await hasSpecs(tenantId, projectId))) {
+    throw Object.assign(
+      new Error(`No specs found for "${projectId}". Add at least one story to specs/ ` +
+        `(or generate starter stories from your product description) before starting a session.`),
+      { code: 'NO_SPECS' }
+    );
+  }
 
   const session = createSession({ tenantId, projectId, costBudget, dryRun });
   session.status = 'planning';

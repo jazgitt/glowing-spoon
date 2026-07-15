@@ -19,6 +19,13 @@ const COST_PER_M_TOKENS = {
 // Mirrors MAX_TOKENS_OUT in claude.js — used for worst-case pre-call estimate.
 const MAX_TOKENS_OUT_ESTIMATE = 8096;
 
+// OpenRouter free-tier models (":free" suffix) cost nothing — without this,
+// the unknown-model Sonnet fallback would falsely burn the session budget.
+function ratesFor(model) {
+  if (typeof model === 'string' && model.endsWith(':free')) return { input: 0, output: 0 };
+  return COST_PER_M_TOKENS[model] ?? { input: 3.00, output: 15.00 }; // conservative fallback
+}
+
 // HIGH-2: pre-call guard — call BEFORE dispatching to the API so budget overruns
 // are blocked before a cent is spent. estimatedInputTokens = rough token count of
 // (system prompt + conversation messages). Throws COST_BUDGET_EXCEEDED if this call
@@ -33,7 +40,7 @@ export async function checkBudgetBefore({ tenantId, projectId, model, estimatedI
     throw new Error('Session has invalid costBudget — aborting to prevent unbounded spend');
   }
 
-  const rates = COST_PER_M_TOKENS[model] ?? { input: 3.00, output: 15.00 }; // conservative fallback
+  const rates = ratesFor(model);
   const estimatedCost = (estimatedInputTokens / 1_000_000 * rates.input)
                       + (MAX_TOKENS_OUT_ESTIMATE / 1_000_000 * rates.output);
 
@@ -47,10 +54,16 @@ export async function checkBudgetBefore({ tenantId, projectId, model, estimatedI
 }
 
 export async function trackCost({ sessionId, tenantId, projectId, agentId, model, usage }) {
-  // Unknown model falls back to Sonnet pricing (conservative overestimate).
-  const rates = COST_PER_M_TOKENS[model] ?? { input: 3.00, output: 15.00 };
+  const rates = ratesFor(model);
   const callCost = (usage.input_tokens  / 1_000_000 * rates.input)
                  + (usage.output_tokens / 1_000_000 * rates.output);
+
+  // One-off utility calls (e.g. drafting starter stories before any session
+  // exists) have no session to bill — report the cost and return.
+  if (!tenantId || !projectId) {
+    out.log('cost', `one-off call: $${callCost.toFixed(4)} (not billed to a session)`);
+    return callCost;
+  }
 
   const session = await store.getSession(tenantId, projectId);
   if (!session) throw new Error(`trackCost: session not found for ${tenantId}/${projectId} — cannot enforce budget`);

@@ -8,6 +8,20 @@ glowing-spoon status  --session <id>
 glowing-spoon approve --session <id>
 ```
 
+## Prefer a browser? There's a web UI
+
+No terminal needed — a full web dashboard covers everything: create projects,
+edit specs, start sessions, watch the agent pipeline live, approve plans and
+checkpoints with one click, browse output, and track cost. With real user
+accounts (invite-only after the first admin).
+
+```
+npm --prefix web install && npm run web:build   # once
+npm run serve                                   # http://localhost:3808
+```
+
+See [docs/deploy.md](docs/deploy.md) to put it on a VPS.
+
 ---
 
 ## Prerequisites

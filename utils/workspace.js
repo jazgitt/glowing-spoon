@@ -132,3 +132,20 @@ export async function loadProductMd(tenantId, projectId) {
   }
 }
 
+// True if specs/ contains at least one .md file with real content. A session
+// started against empty specs degenerates: the planner emits one giant story
+// and the agents invent requirements — never worth the spend.
+export async function hasSpecs(tenantId, projectId) {
+  const specsDir = path.join(getWorkspacePath(tenantId, projectId), 'specs');
+  try {
+    const files = await fs.readdir(specsDir);
+    for (const file of files.filter(f => f.endsWith('.md'))) {
+      const content = await fs.readFile(path.join(specsDir, file), 'utf8');
+      if (content.trim().length > 0) return true;
+    }
+  } catch {
+    // specs dir missing
+  }
+  return false;
+}
+

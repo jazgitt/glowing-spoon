@@ -66,9 +66,12 @@ async function spawnBackground(session, opts) {
   const logStream = createWriteStream(logFile, { flags: 'a' });
   await new Promise(resolve => logStream.once('open', resolve));
 
+  // Forward --dry-run so the child passes the argv API-key guard in cli/index.js.
+  const args = [process.argv[1], 'resume', '--session', session.sessionId];
+  if (session.dryRun) args.push('--dry-run');
   const child = spawn(
     process.execPath,
-    [process.argv[1], 'resume', '--session', session.sessionId],
+    args,
     { detached: true, stdio: ['ignore', logStream, logStream] }
   );
   child.unref();

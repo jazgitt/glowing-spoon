@@ -1,0 +1,29 @@
+{
+  "name": "glowing-spoon-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@codemirror/lang-markdown": "^6.2.5",
+    "@fontsource/bricolage-grotesque": "^5.0.0",
+    "@fontsource/jetbrains-mono": "^5.0.0",
+    "@fontsource/nunito": "^5.0.0",
+    "@tanstack/react-query": "^5.51.0",
+    "@uiw/react-codemirror": "^4.23.0",
+    "canvas-confetti": "^1.9.3",
+    "framer-motion": "^11.3.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^9.0.1",
+    "react-router-dom": "^6.26.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.0"
+  }
+}

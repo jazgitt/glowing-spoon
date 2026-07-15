@@ -1,4 +1,18 @@
 import chalk from 'chalk';
+import { appendFileSync } from 'fs';
+
+// Structured event sink for the web UI: when GS_EVENT_FILE is set (by the web
+// server's spawner), every output call also appends a JSONL event. No-op for
+// normal CLI use, and a sink failure must never break the session.
+function emit(evt) {
+  const file = process.env.GS_EVENT_FILE;
+  if (!file) return;
+  try {
+    appendFileSync(file, JSON.stringify({ ts: Date.now(), ...evt }) + '\n');
+  } catch {
+    // Never let event logging interfere with the session.
+  }
+}
 
 const PREFIX = {
   'agent-pm':           chalk.cyan('[agent-pm]    '),
@@ -24,30 +38,37 @@ function prefix(agentId) {
 
 export function log(agentId, message) {
   console.log(`${prefix(agentId)} ${message}`);
+  emit({ type: 'log', agentId, message });
 }
 
 export function pending(message) {
   console.log(chalk.yellow(`\n[PENDING]      ${message}`));
+  emit({ type: 'pending', message });
 }
 
 export function warn(message) {
   console.log(chalk.yellow(`[WARN]         ${message}`));
+  emit({ type: 'warn', message });
 }
 
 export function error(message) {
   console.log(chalk.red(`[ERROR]        ${message}`));
+  emit({ type: 'error', message });
 }
 
 export function blocked(message) {
   console.log(chalk.red(`\n[BLOCKED]      ${message}`));
+  emit({ type: 'blocked', message });
 }
 
 export function success(message) {
   console.log(chalk.green(`[✓]            ${message}`));
+  emit({ type: 'success', message });
 }
 
 export function info(message) {
   console.log(chalk.gray(`               ${message}`));
+  emit({ type: 'info', message });
 }
 
 export function cost({ agentId, callCost, sessionTotal, budget }) {
@@ -56,6 +77,7 @@ export function cost({ agentId, callCost, sessionTotal, budget }) {
   const callStr = `$${callCost.toFixed(4)}`;
   const totalStr = `$${sessionTotal.toFixed(4)}`;
   console.log(colorFn(`[cost]         ${callStr} this call | ${totalStr} total (${pct}% of $${budget})`));
+  emit({ type: 'cost', agentId, callCost, sessionTotal, budget });
 }
 
 // Stream Claude output chunk-by-chunk without newline
@@ -76,4 +98,5 @@ export function header(message) {
   console.log('');
   console.log(chalk.bold(message));
   console.log(chalk.gray('─'.repeat(60)));
+  emit({ type: 'header', message });
 }

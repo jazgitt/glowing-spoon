@@ -14,6 +14,9 @@ export function registerResumeCommands(program) {
     .description('Resume a stopped or interrupted session from where it left off')
     .requiredOption('--session <id>', 'Session ID')
     .option('--background', 'Resume in background; logs to session.log', false)
+    // Accepted so spawned children of dry-run sessions pass the argv API-key guard
+    // in cli/index.js; the actual dry-run state is restored from the session file.
+    .option('--dry-run', 'Dry run — no real Claude calls', false)
     .action(async (opts) => {
       const session = await loadSession(opts.session);
 
@@ -43,9 +46,12 @@ export function registerResumeCommands(program) {
         await new Promise(resolve => logStream.once('open', resolve));
 
         // Spawn self without --background so the child runs the foreground path.
+        // Forward --dry-run so the child passes the argv API-key guard.
+        const args = [process.argv[1], 'resume', '--session', opts.session];
+        if (session.dryRun) args.push('--dry-run');
         const child = spawn(
           process.execPath,
-          [process.argv[1], 'resume', '--session', opts.session],
+          args,
           { detached: true, stdio: ['ignore', logStream, logStream] }
         );
         child.unref();
