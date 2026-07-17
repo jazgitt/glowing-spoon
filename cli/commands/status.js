@@ -21,11 +21,31 @@ export function registerStatusCommands(program) {
       out.log('status', `Steps   : ${session.completedSteps.length} completed`);
       if (session.currentStep) out.log('status', `Running : ${session.currentStep}`);
 
-      // Pending approval or checkpoint
+      // Pending approval or checkpoint — show what's actually being approved,
+      // not just that something is waiting.
       const pending = await getPending(session.tenantId, session.projectId);
       if (pending) {
         out.divider();
         out.pending(`Waiting for your input (${pending.type}):`);
+
+        if (pending.type === 'plan-approval') {
+          out.log('plan', pending.plan);
+        } else if (pending.type === 'checkpoint') {
+          for (const f of pending.files ?? []) {
+            out.log('checkpoint', `— ${f.relativePath}${f.truncated ? ' (truncated preview)' : ''}`);
+            process.stdout.write(f.content + '\n');
+          }
+          if (!pending.files?.length) {
+            out.log('checkpoint', `Output at: workspaces/${session.tenantId}/${session.projectId}/output/`);
+          }
+        } else if (pending.type === 'escalation') {
+          out.log('escalation', `Agent: ${pending.agent} — ${pending.failureType ?? 'unknown failure'}`);
+          for (const issue of pending.issues ?? []) {
+            out.log('escalation', typeof issue === 'string' ? issue : JSON.stringify(issue));
+          }
+        }
+
+        out.divider();
         out.pending(`  glowing-spoon approve --session ${session.sessionId}`);
         out.pending(`  glowing-spoon reject  --session ${session.sessionId} --feedback "reason"`);
       }

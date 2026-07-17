@@ -103,8 +103,8 @@ export default function NewProject() {
             onChange={e => setDescription(e.target.value)}
           />
           <span className="hint">
-            The team builds from <strong>stories</strong> (short feature descriptions), not from this text alone.
-            A good description here lets the team draft your starter stories for you.
+            The team will make an attempt to draft your <strong>story specs</strong> from this description —
+            you review, edit, and approve them before anything gets built, and you can change them at any time later.
           </span>
         </div>
         <div className="field">

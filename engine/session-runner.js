@@ -8,6 +8,7 @@ import { runCostAgent } from '../agents/cost-agent/index.js';
 import { runComplianceAgent } from '../agents/compliance-agent/index.js';
 import { runPitchAgent } from '../agents/pitch-agent/index.js';
 import { runTeardownAgent } from '../agents/teardown-agent/index.js';
+import { runAssemblerAgent } from '../agents/assembler-agent/index.js';
 import { readOutputDigest } from './output-store.js';
 import {
   setSessionStatus, recordAgentStart, recordAgentComplete, recordAgentRetry,
@@ -24,6 +25,16 @@ function sanitizeAgentOutput(text, maxChars = 50_000) {
     .filter(line => !line.trimStart().startsWith('// filepath:'))
     .join('\n')
     .slice(0, maxChars);
+}
+
+// Cap per-file content for the checkpoint approval payload — full files are
+// already on disk under output/ (link there for the uncapped version).
+function previewFiles(files, cap = 4_000) {
+  return (files ?? []).map(f => ({
+    relativePath: f.relativePath,
+    content: f.content.slice(0, cap),
+    truncated: f.content.length > cap,
+  }));
 }
 
 function parsePlan(text) {
@@ -104,6 +115,17 @@ export async function runSession(session, agentPM) {
 async function runSessionInner(session, agentPM) {
   // Restore dry-run from persisted session state (needed when spawned as child process).
   if (session.dryRun) config.dryRun = true;
+
+  // --- Assemble-only mode: skip plan/story/report, just build the prototype ---
+  if (session.mode === 'assemble-only') {
+    await setSessionStatus(session, 'executing');
+    await runAssembler(session);
+    out.divider();
+    out.success('Assembly session complete.');
+    await setSessionStatus(session, 'complete');
+    await archiveSession(session);
+    return;
+  }
 
   // --- Plan phase ---
   if (session.pipeline.stage === 'plan') {
@@ -201,6 +223,10 @@ async function runSessionInner(session, agentPM) {
   if (await shouldStop(session)) { await haltSession(session); return; }
   await runMvpReport(session);
 
+  // --- Assemble phase: make the output runnable ---
+  if (await shouldStop(session)) { await haltSession(session); return; }
+  await runAssembler(session);
+
   // --- Done ---
   const final = await getSession(session.tenantId, session.projectId);
   out.divider();
@@ -249,10 +275,10 @@ async function runStoryPipeline(session, agentPM, story, storyIndex, resumeAtChe
     if (!devOutput) return;
 
     const codeInput = sanitizeAgentOutput(devOutput.outputText);
-    await setPipelineCursor(session, storyIndex, 'checkpoint', { devInput, codeInput });
+    await setPipelineCursor(session, storyIndex, 'checkpoint', { devInput, codeInput, files: devOutput.files });
 
     // --- Checkpoint ---
-    const approved = await runCheckpoint(session, agentPM, story, storyIndex, devInput, codeInput, taskDescription);
+    const approved = await runCheckpoint(session, agentPM, story, storyIndex, devInput, codeInput, taskDescription, devOutput.files);
     if (!approved) return;
 
     // Advance cursor BEFORE review/qa/docs — crash here = skip to next story (safe).
@@ -268,7 +294,7 @@ async function runStoryPipeline(session, agentPM, story, storyIndex, resumeAtChe
       return runStoryPipeline(session, agentPM, story, storyIndex, false);
     }
 
-    const approved = await runCheckpoint(session, agentPM, story, storyIndex, cp.devInput, cp.codeInput, taskDescription);
+    const approved = await runCheckpoint(session, agentPM, story, storyIndex, cp.devInput, cp.codeInput, taskDescription, cp.files);
     if (!approved) return;
 
     await setPipelineCursor(session, storyIndex + 1, 'spec', null);
@@ -317,9 +343,31 @@ async function runMvpReport(session) {
   out.log('session', 'MVP report written to output/report/');
 }
 
+// ---------------------------------------------------------------------------
+// Assemble phase — assembler-agent turns output/src into a runnable app in
+// prototype/. Build failures (npm install / tsc) ride the same syntaxErrors
+// retry loop as dev-agent; after 2 failed retries it escalates to the PM, and
+// "skip" completes the session without a prototype — assembly never bricks it.
+// ---------------------------------------------------------------------------
+
+async function runAssembler(session) {
+  out.divider();
+  out.header('Assembler — building runnable prototype');
+
+  await runAgentWithRetry({
+    agentId: 'assembler-agent', session,
+    agentFn: (fb, errs) => runAssemblerAgent({
+      session, pmFeedback: fb, syntaxErrors: errs ?? [],
+    }),
+    handleSyntaxErrors: true,
+  });
+
+  out.log('session', `Prototype at: workspaces/${session.tenantId}/${session.projectId}/prototype/`);
+}
+
 // Checkpoint pause: wait for PM approval before running review/qa/docs.
 // On reject: re-run dev with feedback, then recurse back to checkpoint.
-async function runCheckpoint(session, agentPM, story, storyIndex, devInput, codeInput, taskDescription) {
+async function runCheckpoint(session, agentPM, story, storyIndex, devInput, codeInput, taskDescription, files) {
   await processInbox(session, agentPM);
 
   out.divider();
@@ -331,6 +379,7 @@ async function runCheckpoint(session, agentPM, story, storyIndex, devInput, code
 
   await writePending(session.tenantId, session.projectId, {
     type: 'checkpoint', stage: 'dev-complete', storyIndex,
+    files: previewFiles(files),
   });
 
   let response;
@@ -362,8 +411,8 @@ async function runCheckpoint(session, agentPM, story, storyIndex, devInput, code
     });
     if (!reDevOutput) return false;
     const newCodeInput = sanitizeAgentOutput(reDevOutput.outputText);
-    await setPipelineCursor(session, storyIndex, 'checkpoint', { devInput, codeInput: newCodeInput });
-    return runCheckpoint(session, agentPM, story, storyIndex, devInput, newCodeInput, taskDescription);
+    await setPipelineCursor(session, storyIndex, 'checkpoint', { devInput, codeInput: newCodeInput, files: reDevOutput.files });
+    return runCheckpoint(session, agentPM, story, storyIndex, devInput, newCodeInput, taskDescription, reDevOutput.files);
   }
 
   // Default-deny: only an explicit approve unlocks review/qa/docs.

@@ -5,11 +5,11 @@ import { getWorkspacePath } from '../utils/workspace.js';
 const MAX_FILES = 50;
 const MAX_FILE_BYTES = 500_000;
 
-export async function saveAgentOutput({ tenantId, projectId, files }) {
+export async function saveAgentOutput({ tenantId, projectId, files, subdir = 'output' }) {
   if (files.length > MAX_FILES) {
     throw new Error(`Agent output contains too many files: ${files.length} (max ${MAX_FILES})`);
   }
-  const outputPath = path.resolve(getWorkspacePath(tenantId, projectId), 'output');
+  const outputPath = path.resolve(getWorkspacePath(tenantId, projectId), subdir);
   for (const file of files) {
     const bytes = Buffer.byteLength(file.content, 'utf8');
     if (bytes > MAX_FILE_BYTES) {
@@ -65,6 +65,62 @@ export async function readOutputDigest({ tenantId, projectId, maxChars = 40_000 
   }
 
   return sections.join('\n\n').slice(0, maxChars);
+}
+
+// Full source content for the assembler-agent — unlike readOutputDigest's
+// 1.5k-char snippets, import reconciliation needs whole files. Walks only
+// output/src; if over budget, drops the largest test files first, then the
+// largest remaining files, so app code survives truncation longest.
+export async function readSourceFiles({ tenantId, projectId, maxChars = 120_000 }) {
+  const srcPath = path.resolve(getWorkspacePath(tenantId, projectId), 'output', 'src');
+
+  async function walk(dir) {
+    const results = [];
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return results;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) results.push(...await walk(full));
+      else results.push(full);
+    }
+    return results;
+  }
+
+  const files = [];
+  for (const file of await walk(srcPath)) {
+    let content;
+    try {
+      content = await fs.readFile(file, 'utf8');
+    } catch {
+      continue; // binary or unreadable — skip
+    }
+    const rel = 'src/' + path.relative(srcPath, file).split(path.sep).join('/');
+    files.push({ rel, content, isTest: /\.test\.|\.spec\./.test(rel) });
+  }
+
+  let total = files.reduce((n, f) => n + f.content.length, 0);
+  if (total > maxChars) {
+    // Drop tests first (largest first), then largest app files, until we fit.
+    const droppable = [...files].sort((a, b) =>
+      (b.isTest - a.isTest) || (b.content.length - a.content.length));
+    for (const f of droppable) {
+      if (total <= maxChars) break;
+      total -= f.content.length;
+      f.dropped = true;
+    }
+  }
+
+  const kept = files.filter(f => !f.dropped);
+  const droppedNames = files.filter(f => f.dropped).map(f => f.rel);
+  let result = kept.map(f => `### ${f.rel}\n${f.content}`).join('\n\n');
+  if (droppedNames.length > 0) {
+    result += `\n\n### [OMITTED FOR SIZE]\n${droppedNames.join('\n')}`;
+  }
+  return result;
 }
 
 // Parse agent output text into { relativePath, content }[] using filepath comments.

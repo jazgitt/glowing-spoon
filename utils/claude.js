@@ -46,7 +46,7 @@ function getBaseUrl() {
 
 // Agents that need multi-step reasoning use the reasoning model.
 // Mechanical agents (scoring, routing, compression) use the fast model.
-const REASONING_AGENTS = new Set(['agent-pm', 'spec-agent', 'dev-agent', 'integration-agent', 'review-agent']);
+const REASONING_AGENTS = new Set(['agent-pm', 'spec-agent', 'dev-agent', 'integration-agent', 'review-agent', 'assembler-agent']);
 
 function getModel(agentId) {
   return REASONING_AGENTS.has(agentId)
@@ -127,6 +127,7 @@ export const AGENT_CONTEXT_NEEDS = {
   'compliance-agent':   ['guardrails', 'patterns'],
   'pitch-agent':        ['guardrails', 'patterns'],
   'teardown-agent':     ['guardrails', 'patterns', 'stack'],
+  'assembler-agent':    ['guardrails', 'patterns', 'stack'],
   'quality-scorer':     ['guardrails', 'patterns'],
   'skill-resolver':     [],
   'history-compressor': [],
@@ -310,6 +311,64 @@ Biggest lever: per-transaction payment fees.`,
 
 Gaps before first customer: monitoring, backups.`,
 
+  'assembler-agent': `// filepath: package.json
+{
+  "name": "prototype",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n api,web \\"npm:dev:api\\" \\"npm:dev:web\\"",
+    "dev:api": "tsx src/server/index.ts",
+    "dev:web": "vite",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": { "express": "^4.19.0", "react": "^18.3.1", "react-dom": "^18.3.1" },
+  "devDependencies": { "tsx": "^4.16.0", "typescript": "^5.5.0", "vite": "^5.4.0", "@vitejs/plugin-react": "^4.3.0", "concurrently": "^8.2.0" }
+}
+
+// filepath: src/server/index.ts
+import express from 'express';
+const app = express();
+app.use(express.json());
+app.get('/api/health', (_req, res) => res.json({ ok: true, dryRun: true }));
+const port = Number(process.env.API_PORT) || 4000;
+app.listen(port, () => console.log('[DRY RUN] API on :' + port));
+
+// filepath: vite.config.ts
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    port: Number(process.env.WEB_PORT) || 5173,
+    proxy: { '/api': 'http://localhost:' + (process.env.API_PORT || 4000) },
+  },
+});
+
+// filepath: index.html
+<!doctype html>
+<html><head><title>Prototype (dry run)</title></head>
+<body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>
+
+// filepath: src/main.tsx
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+createRoot(document.getElementById('root')!).render(<h1>Dry-run prototype</h1>);
+
+// filepath: tsconfig.json
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "ESNext", "moduleResolution": "Bundler",
+    "jsx": "react-jsx", "allowJs": true, "checkJs": false,
+    "strict": false, "noEmit": true, "esModuleInterop": true, "skipLibCheck": true
+  },
+  "include": ["src"]
+}
+
+// filepath: README.md
+# Prototype — DRY RUN
+Placeholder assembly. Run a real (non-dry-run) session to generate working glue.`,
+
   'skill-resolver': JSON.stringify({ skills: ['refine-story', 'write-acceptance-criteria'] }),
 
   'history-compressor': '[DRY RUN] Compressed session history. Key decisions: routing spec-agent → dev-agent. Plan approved.',
@@ -372,6 +431,7 @@ export async function callClaude({
   conversationHistory,
   specs,
   dryRun,
+  maxTokens = MAX_TOKENS_OUT,
 }) {
   const isDryRun = dryRun ?? config.dryRun;
 
@@ -402,12 +462,12 @@ export async function callClaude({
   const totalEstimate = estimateTokens(finalSystem)
     + estimateTokens(JSON.stringify(history))
     + estimateTokens(userPrompt)
-    + MAX_TOKENS_OUT;
+    + maxTokens;
 
   if (totalEstimate > CONTEXT_WINDOW) {
     history = trimToFit({
       history,
-      budget: CONTEXT_WINDOW - estimateTokens(finalSystem) - estimateTokens(userPrompt) - MAX_TOKENS_OUT,
+      budget: CONTEXT_WINDOW - estimateTokens(finalSystem) - estimateTokens(userPrompt) - maxTokens,
     });
   }
 
@@ -420,7 +480,7 @@ export async function callClaude({
   const estimatedInputTokens = estimateTokens(finalSystem) + estimateTokens(JSON.stringify(messages));
   await checkBudgetBefore({ tenantId, projectId, model: budgetModel, estimatedInputTokens });
 
-  const { response, model } = await callWithRotation(agentId, finalSystem, messages, MAX_TOKENS_OUT);
+  const { response, model } = await callWithRotation(agentId, finalSystem, messages, maxTokens);
   await trackCost({ sessionId, tenantId, projectId, agentId, model, usage: response.usage });
   return response;
 }

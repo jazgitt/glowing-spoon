@@ -33,12 +33,18 @@ export function registerSessionCommands(program) {
 
       if (opts.dryRun) config.dryRun = true;
 
-      const session = await initSession({
-        tenantId: TENANT_ID,
-        projectId: opts.project,
-        costBudget: budget,
-        dryRun: opts.dryRun,
-      });
+      let session;
+      try {
+        session = await initSession({
+          tenantId: TENANT_ID,
+          projectId: opts.project,
+          costBudget: budget,
+          dryRun: opts.dryRun,
+        });
+      } catch (err) {
+        out.error(err.message);
+        process.exit(1);
+      }
 
       out.header(`Session ${session.sessionId}`);
       out.log('session', `Project: ${opts.project} | Budget: $${opts.budget}${opts.dryRun ? ' | DRY RUN' : ''}`);

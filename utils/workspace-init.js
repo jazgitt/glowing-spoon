@@ -61,6 +61,17 @@ export async function initWorkspace({ tenantId = 'local', projectId, name, descr
     await fs.writeFile(path.join(workspacePath, 'context-vault', f), `# ${f}\n\n`);
   }
 
+  // Seed stack conventions so per-story dev-agent output converges on something
+  // the assembler-agent can wire together without heavy reconciliation.
+  await fs.writeFile(
+    path.join(workspacePath, 'context-vault', 'stack.md'),
+    `# stack.md\n\n${stack ? stack + '\n\n' : ''}` +
+    `- ES modules only (import/export) — no require/module.exports\n` +
+    `- TypeScript preferred for backend code; React function components (.tsx) for UI\n` +
+    `- Express routers exported as default from src/routes/*.ts\n` +
+    `- Frontend routing assumes React Router\n`
+  );
+
   const defaultPrompt = await fs.readFile(path.join(REPO_ROOT, 'defaults', 'agent-pm-prompt.md'), 'utf8');
   await fs.writeFile(path.join(workspacePath, 'context-vault', 'agent-pm-prompt.md'), defaultPrompt);
 

@@ -12,6 +12,8 @@ import LiveLog from '../components/LiveLog.jsx';
 import CostMeter from '../components/CostMeter.jsx';
 import ConfettiManager from '../components/ConfettiManager.jsx';
 import MessageComposer from '../components/MessageComposer.jsx';
+import PreviewPanel from '../components/PreviewPanel.jsx';
+import GettingStarted from '../components/GettingStarted.jsx';
 
 function StartModal({ open, onClose, projectId }) {
   const toast = useToast();
@@ -116,7 +118,7 @@ export default function MissionControl() {
   const sessionId = project?.session?.sessionId;
 
   // SSE keeps this query's cache fresh; polling is the fallback while disconnected.
-  const { connected, logText } = useSessionStream(sessionId);
+  const { connected, logText, previewLogText } = useSessionStream(sessionId, projectId);
   const { data: sessionData } = useQuery({
     queryKey: ['session', sessionId],
     queryFn: () => api.get(`/api/sessions/${sessionId}`),
@@ -179,7 +181,7 @@ export default function MissionControl() {
       {session?.status === 'complete' && (
         <div className="orderup" style={{ marginBottom: 20 }}>
           <h2>🛎️ Order up!</h2>
-          <p>All stories shipped and the MVP report is plated.</p>
+          <p>All stories shipped and the MVP report is plated. Taste the dish from the Preview panel →</p>
           <Link to={`/projects/${projectId}/output`} className="btn btn-approve">See what got built</Link>
         </div>
       )}
@@ -194,15 +196,20 @@ export default function MissionControl() {
           {session ? (
             <PipelineBoard session={session} />
           ) : (
-            <div className="panel empty-state">
-              <span className="big">🍳</span>
-              <h2>No session yet</h2>
-              <p>Add your specs, then start a session to see the pipeline come alive.</p>
-            </div>
+            <GettingStarted
+              projectId={projectId}
+              project={project}
+              onStartSession={() => setStartOpen(true)}
+            />
           )}
         </div>
         <div className="mission-side">
           <CostMeter session={session} />
+          <PreviewPanel
+            projectId={projectId}
+            sessionRunning={Boolean(session?.running)}
+            previewLogText={previewLogText}
+          />
           <LiveLog logText={logText} connected={connected} />
           {sessionId && session?.status !== 'complete' && (
             <MessageComposer sessionId={sessionId} disabled={!session?.running} />

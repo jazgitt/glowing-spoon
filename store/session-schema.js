@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 
-export function createSession({ tenantId, projectId, costBudget = 5.00, dryRun = false }) {
+export function createSession({ tenantId, projectId, costBudget = 5.00, dryRun = false, mode = 'full' }) {
   return {
     tenantId,
     projectId,
@@ -11,6 +11,10 @@ export function createSession({ tenantId, projectId, costBudget = 5.00, dryRun =
     status: 'initializing',
 
     dryRun,
+
+    // 'full' runs the whole pipeline; 'assemble-only' skips plan/story/report
+    // and just assembles existing output/ into a runnable prototype/.
+    mode,
 
     agentPM: {
       conversationHistory: [],
@@ -32,6 +36,7 @@ export function createSession({ tenantId, projectId, costBudget = 5.00, dryRun =
       'compliance-agent':  { status: 'idle', retryCount: 0, scores: [], skillsLoaded: [] },
       'pitch-agent':       { status: 'idle', retryCount: 0, scores: [], skillsLoaded: [] },
       'teardown-agent':    { status: 'idle', retryCount: 0, scores: [], skillsLoaded: [] },
+      'assembler-agent':   { status: 'idle', retryCount: 0, scores: [], skillsLoaded: [] },
     },
 
     pmFeedback: [],

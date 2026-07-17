@@ -9,12 +9,22 @@ import { validateWorkspace, getWorkspacePath, hasSpecs } from '../utils/workspac
 import { loadProductMd } from './context-loader.js';
 import * as out from '../utils/output.js';
 
-export async function initSession({ tenantId, projectId, costBudget, dryRun = false }) {
+export async function initSession({ tenantId, projectId, costBudget, dryRun = false, mode = 'full' }) {
   await validateWorkspace(tenantId, projectId);
 
-  // Empty specs make every downstream agent hallucinate requirements and the
-  // planner collapse to one oversized story — refuse before any spend.
-  if (!(await hasSpecs(tenantId, projectId))) {
+  if (mode === 'assemble-only') {
+    // Assembly reads output/src, not specs — guard on generated code existing.
+    const srcDir = path.join(getWorkspacePath(tenantId, projectId), 'output', 'src');
+    const hasOutput = await fs.readdir(srcDir).then(f => f.length > 0).catch(() => false);
+    if (!hasOutput) {
+      throw Object.assign(
+        new Error(`No generated code in output/src for "${projectId}". Run a full session first.`),
+        { code: 'NO_OUTPUT' }
+      );
+    }
+  } else if (!(await hasSpecs(tenantId, projectId))) {
+    // Empty specs make every downstream agent hallucinate requirements and the
+    // planner collapse to one oversized story — refuse before any spend.
     throw Object.assign(
       new Error(`No specs found for "${projectId}". Add at least one story to specs/ ` +
         `(or generate starter stories from your product description) before starting a session.`),
@@ -22,7 +32,7 @@ export async function initSession({ tenantId, projectId, costBudget, dryRun = fa
     );
   }
 
-  const session = createSession({ tenantId, projectId, costBudget, dryRun });
+  const session = createSession({ tenantId, projectId, costBudget, dryRun, mode });
   session.status = 'planning';
 
   const product = await loadProductMd(tenantId, projectId);

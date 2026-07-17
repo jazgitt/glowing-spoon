@@ -37,6 +37,24 @@ out.header('Full Pipeline Test');
 out.log('test', `Tenant: ${values.tenant} | Project: ${values.project} | Budget: $${values.budget}`);
 if (values['dry-run']) out.warn('DRY RUN — no real Claude calls');
 
+// initSession refuses to start against empty specs (NO_SPECS guard) — seed a
+// minimal story so the wiring test has something legitimate to build from.
+{
+  const { getWorkspacePath } = await import('../utils/workspace.js');
+  const fs = await import('fs/promises');
+  const path = await import('path');
+  const specsDir = path.join(getWorkspacePath(values.tenant, values.project), 'specs');
+  await fs.mkdir(specsDir, { recursive: true });
+  const seedFile = path.join(specsDir, 'stories.md');
+  try {
+    await fs.access(seedFile);
+  } catch {
+    await fs.writeFile(seedFile,
+      '# User Stories\n\n## Story 1: User Registration\nAs a user, I can register with email and password.\n\nAcceptance criteria:\n- Email format validated\n- Password minimum 8 characters\n');
+    out.log('test', 'Seeded specs/stories.md (specs folder was empty)');
+  }
+}
+
 try {
   const session = await initSession({
     tenantId: values.tenant,

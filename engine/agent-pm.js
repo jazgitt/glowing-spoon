@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { callClaude } from '../utils/claude.js';
-import { getWorkspacePath } from '../utils/workspace.js';
+import { getWorkspacePath, loadSpecs } from '../utils/workspace.js';
 import * as out from '../utils/output.js';
 
 export class AgentPM {
@@ -21,7 +21,7 @@ export class AgentPM {
     return this._systemPrompt;
   }
 
-  async think(userMessage) {
+  async think(userMessage, { specs } = {}) {
     const systemPrompt = await this.loadSystemPrompt();
 
     const response = await callClaude({
@@ -33,6 +33,7 @@ export class AgentPM {
       sessionId: this.session.sessionId,
       conversationHistory: this.conversationHistory,
       dryRun: this.session.dryRun,
+      specs,
     });
 
     const text = response.content[0].text;
@@ -69,7 +70,8 @@ export class AgentPM {
     ];
   }
 
-  plan() {
+  async plan() {
+    const specs = await loadSpecs(this.session.tenantId, this.session.projectId);
     return this.think(
       'Analyze all specs. Select the next 5-8 stories to execute this session. ' +
       'Every planned story MUST correspond to a story that exists in the specs — ' +
@@ -79,13 +81,18 @@ export class AgentPM {
       'Prioritise by: dependencies first, then complexity low-to-high. ' +
       'Do not plan more than 8 stories per session. ' +
       'Remaining stories will be picked up in subsequent sessions. ' +
-      'Produce execution plan as structured JSON.'
+      'Produce execution plan as structured JSON.',
+      { specs }
     );
   }
 
-  revisePlan(feedback) {
+  async revisePlan(feedback) {
+    const specs = await loadSpecs(this.session.tenantId, this.session.projectId);
     const safe = String(feedback).slice(0, 2000);
-    return this.think(`PM feedback on plan: "${safe}". Revise and restate full plan as structured JSON.`);
+    return this.think(
+      `PM feedback on plan: "${safe}". Revise and restate full plan as structured JSON.`,
+      { specs }
+    );
   }
 
   routeNext(lastOutput) {
@@ -103,8 +110,12 @@ export class AgentPM {
     return this.think(`PM question: "${safe}". Answer using full session context. Do not affect pipeline state.`);
   }
 
-  handleScopeChange(feedback) {
+  async handleScopeChange(feedback) {
+    const specs = await loadSpecs(this.session.tenantId, this.session.projectId);
     const safe = String(feedback).slice(0, 2000);
-    return this.think(`PM scope change: "${safe}". Re-plan from current step. Return updated structured JSON plan.`);
+    return this.think(
+      `PM scope change: "${safe}". Re-plan from current step. Return updated structured JSON plan.`,
+      { specs }
+    );
   }
 }

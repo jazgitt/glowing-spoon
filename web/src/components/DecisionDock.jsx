@@ -65,6 +65,39 @@ function IssueLine({ issue }) {
   return <li>{typeof issue === 'string' ? issue : JSON.stringify(issue)}</li>;
 }
 
+function CheckpointBody({ pending, projectId }) {
+  const files = pending.files ?? [];
+  return (
+    <div>
+      <p style={{ color: 'var(--text-dim)', fontSize: 14, marginBottom: 8 }}>
+        Story {(pending.storyIndex ?? 0) + 1} is built.{' '}
+        <Link to={`/projects/${projectId}/output`} style={{ color: 'var(--glow)', fontWeight: 700 }}>
+          Browse the full output →
+        </Link>
+      </p>
+      {files.length === 0 ? (
+        <p style={{ color: 'var(--text-faint)', fontSize: 13 }}>No file preview available for this checkpoint.</p>
+      ) : (
+        files.map((f, i) => (
+          <div key={i} style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>
+              {f.relativePath}
+              {f.truncated && <span style={{ color: 'var(--text-faint)', fontWeight: 400 }}> (preview truncated — see full output)</span>}
+            </div>
+            <pre style={{
+              margin: 0, padding: '8px 10px', maxHeight: 220, overflow: 'auto',
+              background: 'var(--bg-sunken)', borderRadius: 8, fontSize: 12.5,
+              fontFamily: 'var(--font-mono, monospace)', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+            }}>
+              {f.content}
+            </pre>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
 function EscalationBody({ pending }) {
   const info = agentInfo(pending.agent);
   const reason = FAILURE_LABELS[pending.failureType] ?? 'the step kept failing';
@@ -146,14 +179,7 @@ export default function DecisionDock({ session, projectId, onApprove, onReject, 
 
             <div className="dock-body">
               {pending.type === 'plan-approval' && <PlanBody plan={pending.plan} />}
-              {pending.type === 'checkpoint' && (
-                <p style={{ color: 'var(--text-dim)', fontSize: 14 }}>
-                  Story {(pending.storyIndex ?? 0) + 1} is built.{' '}
-                  <Link to={`/projects/${projectId}/output`} style={{ color: 'var(--glow)', fontWeight: 700 }}>
-                    Browse the code it produced →
-                  </Link>
-                </p>
-              )}
+              {pending.type === 'checkpoint' && <CheckpointBody pending={pending} projectId={projectId} />}
               {pending.type === 'escalation' && <EscalationBody pending={pending} />}
             </div>
 

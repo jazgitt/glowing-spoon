@@ -89,6 +89,7 @@ Output lands in `workspaces/local/demo/output/`.
 | `resume --session <id>` | Continue a stopped session |
 | `resume --session <id> --background` | Continue in background |
 | `plan --session <id>` | Show the current execution plan |
+| `assemble --project <id>` | Assemble existing output into a runnable `prototype/` |
 
 ---
 
@@ -109,11 +110,41 @@ After all stories complete, the MVP Report phase runs once:
   → compliance-agent  GDPR / PCI / accessibility checklist (guardrail, not legal advice)
   → pitch-agent       one-pager, 3-minute demo script, pricing draft
   → teardown-agent    what an agency or freelancer would have quoted vs. this session
+
+Then the Assemble phase makes it runnable:
+  → assembler-agent   wires all generated code into prototype/ — package.json,
+                      server entry point, in-memory database, React shell — and
+                      verifies it installs and typechecks before finishing
 ```
 
-Each agent's output is written directly to `output/`. Retries overwrite the previous output — only the latest run is kept. The MVP Report lands in `output/report/`.
+Each agent's output is written directly to `output/`. Retries overwrite the previous output — only the latest run is kept. The MVP Report lands in `output/report/`; the runnable app lands in `prototype/`.
 
 A **dev checkpoint** pauses after dev-agent completes so you can read the code before tests and docs are generated. Use `approve` to continue or `reject --feedback` to have dev-agent revise.
+
+---
+
+## Preview the Prototype
+
+Every session ends by assembling the generated code into a runnable app at
+`workspaces/local/<project>/prototype/`. From **Mission Control** in the web UI:
+
+- **Assemble prototype** — for projects that already have generated output but no
+  prototype yet (e.g. sessions run before this feature existed). Runs a short
+  assembly-only session (`glowing-spoon assemble --project <id>` from the CLI).
+- **Start preview** — installs dependencies and runs the app's dev server, then
+  gives you an **Open app** link (`http://localhost:<port>`, ports auto-allocated
+  from 5310 up). Install/startup output streams into the panel's log viewer.
+- **Stop** — kills the dev server and its child processes.
+
+Two things to know:
+
+1. **Starting a preview executes AI-generated code on the machine running the
+   server.** It is always user-initiated (never auto-run), dependencies are
+   restricted to a fixed allowlist, and `npm install` runs with `--ignore-scripts`
+   — but treat it like running any code you haven't read. Phase 1 assumes a
+   single trusted local user; do not expose previews from a shared host.
+2. **Re-assembling overwrites `prototype/`**, including any hand edits — the
+   prototype is generated output, same single-source rule as `output/`.
 
 ---
 

@@ -4,7 +4,7 @@ import { program } from 'commander';
 
 // Only commands that call the Claude API need a key. Let workspace/status/approve/reject/
 // stop/plan run freely so users can manage sessions without having an API key configured yet.
-const API_REQUIRED_COMMANDS = new Set(['run', 'resume']);
+const API_REQUIRED_COMMANDS = new Set(['run', 'resume', 'assemble']);
 const firstArg = process.argv[2];
 const isDryRun = process.argv.includes('--dry-run');
 if (API_REQUIRED_COMMANDS.has(firstArg) && !isDryRun && !process.env.OPENROUTER_API_KEY) {
@@ -20,6 +20,7 @@ import { registerApproveCommands } from './commands/approve.js';
 import { registerRejectCommands } from './commands/reject.js';
 import { registerRespondCommands } from './commands/respond.js';
 import { registerStopCommands } from './commands/stop.js';
+import { registerAssembleCommands } from './commands/assemble.js';
 
 program
   .name('glowing-spoon')
@@ -35,5 +36,6 @@ registerApproveCommands(program);
 registerRejectCommands(program);
 registerRespondCommands(program);
 registerStopCommands(program);
+registerAssembleCommands(program);
 
 program.parse();

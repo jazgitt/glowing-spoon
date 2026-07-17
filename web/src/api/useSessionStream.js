@@ -6,14 +6,22 @@ import { useQueryClient } from '@tanstack/react-query';
 
 const MAX_LOG_CHARS = 200_000;
 
-export function useSessionStream(sessionId) {
+export function useSessionStream(sessionId, projectId) {
   const queryClient = useQueryClient();
   const [connected, setConnected] = useState(false);
   const [logText, setLogText] = useState('');
+  const [previewLogText, setPreviewLogText] = useState('');
   const backfilled = useRef(false);
 
   const appendLog = useCallback((chunk) => {
     setLogText(prev => {
+      const next = prev + chunk;
+      return next.length > MAX_LOG_CHARS ? next.slice(next.length - MAX_LOG_CHARS) : next;
+    });
+  }, []);
+
+  const appendPreviewLog = useCallback((chunk) => {
+    setPreviewLogText(prev => {
       const next = prev + chunk;
       return next.length > MAX_LOG_CHARS ? next.slice(next.length - MAX_LOG_CHARS) : next;
     });
@@ -58,11 +66,28 @@ export function useSessionStream(sessionId) {
       } catch { /* malformed frame */ }
     });
 
+    es.addEventListener('preview', (e) => {
+      try {
+        const { preview } = JSON.parse(e.data);
+        if (projectId) {
+          queryClient.setQueryData(['preview', projectId], (old) =>
+            ({ ...(old ?? {}), preview }));
+        }
+      } catch { /* malformed frame */ }
+    });
+
+    es.addEventListener('preview-log', (e) => {
+      try {
+        const { chunk } = JSON.parse(e.data);
+        if (chunk) appendPreviewLog(chunk);
+      } catch { /* malformed frame */ }
+    });
+
     return () => {
       es.close();
       setConnected(false);
     };
-  }, [sessionId, queryClient, appendLog]);
+  }, [sessionId, projectId, queryClient, appendLog, appendPreviewLog]);
 
-  return { connected, logText };
+  return { connected, logText, previewLogText };
 }

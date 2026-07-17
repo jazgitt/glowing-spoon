@@ -6,6 +6,7 @@ import path from 'path';
 import { getWorkspacePath } from '../../utils/workspace.js';
 import { getSession, getPending } from '../../store/file-store.js';
 import { publicSession } from './session-view.js';
+import { getPreview } from './preview.js';
 
 const POLL_INTERVAL_MS = 1000;
 const MAX_CHUNK = 256 * 1024;
@@ -45,11 +46,16 @@ function createWatcher(tenantId, projectId) {
   const pendingFile = path.join(ws, '.pending.json');
   const logFile = path.join(ws, 'session.log');
   const eventsFile = path.join(ws, 'events.jsonl');
+  const previewFile = path.join(ws, '.preview.json');
+  const previewLogFile = path.join(ws, 'preview.log');
 
   const watcher = {
     subscribers: new Set(),
     timer: null,
-    state: { sessionMtime: 0, pendingMtime: undefined, logOffset: null, eventsOffset: null },
+    state: {
+      sessionMtime: 0, pendingMtime: undefined, logOffset: null, eventsOffset: null,
+      previewMtime: undefined, previewLogOffset: 0,
+    },
   };
 
   function broadcast(event, data) {
@@ -84,6 +90,21 @@ function createWatcher(tenantId, projectId) {
       const { offset, chunk } = await readFrom(logFile, s.logOffset);
       s.logOffset = offset;
       if (chunk) broadcast('log', { chunk });
+    }
+
+    // Preview state — status transitions rewrite .preview.json.
+    const previewMtime = await statMtime(previewFile);
+    if (previewMtime !== s.previewMtime) {
+      s.previewMtime = previewMtime;
+      broadcast('preview', { preview: await getPreview(tenantId, projectId) });
+    }
+
+    // Preview log tail — starts at offset 0 (fresh file per run; install output
+    // matters). readFrom's shrink-reset handles the per-run truncation.
+    {
+      const { offset, chunk } = await readFrom(previewLogFile, s.previewLogOffset);
+      s.previewLogOffset = offset;
+      if (chunk) broadcast('preview-log', { chunk });
     }
 
     // Structured JSONL events from the engine's output emitter.

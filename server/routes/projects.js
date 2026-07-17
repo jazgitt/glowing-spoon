@@ -8,7 +8,9 @@ import { getWorkspacePath, hasSpecs } from '../../utils/workspace.js';
 import { initWorkspace, seedWorkspace, listWorkspaces, PROJECT_ID_PATTERN } from '../../utils/workspace-init.js';
 import { callClaude } from '../../utils/claude.js';
 import { getSession, getPending } from '../../store/file-store.js';
-import { isPidAlive, isSessionRunning, isRunnerDead } from '../services/spawner.js';
+import { isPidAlive, isSessionRunning, isRunnerDead, spawnSessionRunner } from '../services/spawner.js';
+import { initSession } from '../../engine/session.js';
+import { getPreview, hasPrototype, startPreview, stopPreview } from '../services/preview.js';
 import { audit } from '../services/audit.js';
 
 const TENANT_ID = 'local';
@@ -46,15 +48,20 @@ async function projectSummary(projectId) {
   const session = await getSession(TENANT_ID, projectId);
   const pending = session ? await getPending(TENANT_ID, projectId) : null;
   let productName = projectId;
+  let hasProduct = false;
   try {
     const product = await fs.readFile(path.join(getWorkspacePath(TENANT_ID, projectId), 'PRODUCT.md'), 'utf8');
     const heading = product.match(/^#\s+(.+)$/m);
     if (heading) productName = heading[1].trim();
+    // "Described" = more than just the heading scaffold initWorkspace writes.
+    hasProduct = product.replace(/^#.*$/m, '').replace(/^##.*$/gm, '').trim().length >= 40;
   } catch { /* no PRODUCT.md yet */ }
 
   return {
     id: projectId,
     name: productName,
+    hasProduct,
+    hasSpecs: await hasSpecs(TENANT_ID, projectId),
     session: session ? {
       sessionId: session.sessionId,
       status: session.status,
@@ -244,6 +251,123 @@ projectsRouter.post('/:id/generate-specs', async (req, res) => {
   }
 });
 
+// --- interactive spec drafting -------------------------------------------------
+// Reads the user's notes from ALL editable markdown (PRODUCT.md + every file in
+// specs/) and returns a clean, structured draft WITHOUT writing anything. The
+// user reviews/edits it in the UI and saves via the normal PUT /file endpoint —
+// nothing lands on disk until they approve.
+
+const CLEAN_SPECS_SYSTEM = `You turn rough product notes into clean user stories for a software MVP.
+You receive the product description plus every note file the user has written — these may be
+messy, redundant, or contradictory. Produce ONE clean, deduplicated set of 6-10 small,
+independently buildable user stories that captures everything the notes ask for.
+
+Rules:
+- Each story must be small enough to implement in a few files (one screen, one flow, one endpoint group).
+- Order them so earlier stories unblock later ones.
+- Preserve every concrete requirement from the notes; resolve contradictions in favor of the most recent/specific note and say so in a one-line comment under that story.
+- Output ONLY markdown in exactly this format, no preamble:
+
+# User Stories
+
+## Story 1: <short title>
+As a <user>, I want <capability> so that <benefit>.
+
+Acceptance criteria:
+- <criterion>
+- <criterion>
+
+(repeat for each story)`;
+
+projectsRouter.post('/:id/draft-specs', async (req, res) => {
+  if (!assertProjectParam(req, res)) return;
+  const projectId = req.params.id;
+  const ws = getWorkspacePath(TENANT_ID, projectId);
+
+  if (!process.env.OPENROUTER_API_KEY) {
+    return res.status(400).json({ error: 'OPENROUTER_API_KEY is not configured on the server.' });
+  }
+
+  // Gather notes: PRODUCT.md + every spec .md file.
+  const sections = [];
+  try {
+    const product = await fs.readFile(path.join(ws, 'PRODUCT.md'), 'utf8');
+    if (product.trim()) sections.push(`## PRODUCT.md\n${product.trim()}`);
+  } catch { /* none */ }
+  try {
+    const specFiles = (await fs.readdir(path.join(ws, 'specs'))).filter(f => f.endsWith('.md'));
+    for (const f of specFiles) {
+      const content = await fs.readFile(path.join(ws, 'specs', f), 'utf8');
+      if (content.trim()) sections.push(`## specs/${f}\n${content.trim()}`);
+    }
+  } catch { /* none */ }
+
+  const notes = sections.join('\n\n---\n\n').slice(0, 40_000);
+  if (notes.trim().length < 40) {
+    return res.status(400).json({
+      error: 'Not enough notes to draft from. Add a few sentences to the product description or a spec file first.',
+    });
+  }
+
+  try {
+    // tenantId/projectId deliberately omitted: pre-session one-off, no session
+    // budget to bill against (same as generate-specs above).
+    const response = await callClaude({
+      systemPrompt: CLEAN_SPECS_SYSTEM,
+      userPrompt: `The user's notes:\n\n${notes}`,
+      agentId: 'spec-agent',
+    });
+    const draft = response.content?.[0]?.text ?? '';
+    if (draft.trim().length < 100) {
+      return res.status(502).json({ error: 'The model returned an unusably short draft — try again.' });
+    }
+    await audit(req.user, 'specs.draft', { projectId });
+    res.json({ draft: draft.trim() + '\n' });
+  } catch (err) {
+    res.status(502).json({ error: `Spec drafting failed: ${err.message}` });
+  }
+});
+
+// --- on-demand assembly --------------------------------------------------------
+// Creates an assemble-only session (skips plan/story/report) and spawns it
+// detached like any other session — progress streams over the existing SSE.
+
+projectsRouter.post('/:id/assemble', async (req, res) => {
+  if (!assertProjectParam(req, res)) return;
+  const projectId = req.params.id;
+
+  if (!process.env.OPENROUTER_API_KEY) {
+    return res.status(400).json({ error: 'OPENROUTER_API_KEY is not configured on the server.' });
+  }
+
+  const existing = await getSession(TENANT_ID, projectId);
+  if (existing && isSessionRunning(existing)) {
+    return res.status(409).json({ error: 'A session is already running for this project. Wait for it to finish.' });
+  }
+
+  let session;
+  try {
+    session = await initSession({
+      tenantId: TENANT_ID,
+      projectId,
+      costBudget: 2.00,
+      mode: 'assemble-only',
+    });
+  } catch (err) {
+    const status = err.code === 'NO_OUTPUT' ? 409 : 500;
+    return res.status(status).json({ error: err.message });
+  }
+
+  try {
+    await spawnSessionRunner(session);
+  } catch (err) {
+    return res.status(500).json({ error: `Failed to start assembly: ${err.message}` });
+  }
+
+  await audit(req.user, 'project.assemble', { projectId, sessionId: session.sessionId });
+  res.status(201).json({ sessionId: session.sessionId });
+});
+
 // --- output browser (read-only) ----------------------------------------------
 
 const MAX_TREE_ENTRIES = 500;
@@ -292,6 +416,66 @@ projectsRouter.get('/:id/output/file', async (req, res) => {
     res.json({ content });
   } catch {
     res.status(404).json({ error: 'File not found' });
+  }
+});
+
+// --- live preview of the assembled prototype -----------------------------------
+// See MEDIUM-3 in server/services/preview.js: start executes LLM-generated code,
+// user-initiated only, Phase-1 single-local-user.
+
+projectsRouter.get('/:id/preview', async (req, res) => {
+  if (!assertProjectParam(req, res)) return;
+  res.json({
+    preview: await getPreview(TENANT_ID, req.params.id),
+    hasPrototype: await hasPrototype(TENANT_ID, req.params.id),
+  });
+});
+
+projectsRouter.post('/:id/preview/start', async (req, res) => {
+  if (!assertProjectParam(req, res)) return;
+  try {
+    const preview = await startPreview(TENANT_ID, req.params.id);
+    await audit(req.user, 'preview.start', {
+      projectId: req.params.id, apiPort: preview.apiPort, webPort: preview.webPort,
+    });
+    res.status(201).json({ preview });
+  } catch (err) {
+    const status = ['NO_PROTOTYPE', 'ALREADY_RUNNING'].includes(err.code) ? 409
+      : ['DISALLOWED_DEPS', 'BAD_PACKAGE_JSON'].includes(err.code) ? 400 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+projectsRouter.post('/:id/preview/stop', async (req, res) => {
+  if (!assertProjectParam(req, res)) return;
+  try {
+    const preview = await stopPreview(TENANT_ID, req.params.id);
+    await audit(req.user, 'preview.stop', { projectId: req.params.id });
+    res.json({ preview });
+  } catch (err) {
+    const status = err.code === 'NOT_RUNNING' ? 409 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+projectsRouter.get('/:id/preview/log', async (req, res) => {
+  if (!assertProjectParam(req, res)) return;
+  const logFile = path.join(getWorkspacePath(TENANT_ID, req.params.id), 'preview.log');
+  const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+  try {
+    const stat = await fs.stat(logFile);
+    const start = Math.min(offset, stat.size);
+    const length = Math.min(stat.size - start, 256 * 1024);
+    const handle = await fs.open(logFile, 'r');
+    try {
+      const buffer = Buffer.alloc(length);
+      await handle.read(buffer, 0, length, start);
+      res.json({ offset: start + length, content: buffer.toString('utf8') });
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    res.json({ offset: 0, content: '' });
   }
 });
 
