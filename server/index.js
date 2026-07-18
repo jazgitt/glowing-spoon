@@ -24,8 +24,18 @@ app.use('/api/projects', requireAuth, projectsRouter);
 app.use('/api/sessions', requireAuth, sessionsRouter);
 
 // Built SPA (web/dist). In dev, Vite serves the SPA and proxies /api here instead.
-app.use(express.static(config.webDist));
+// index.html must never be cached: it names the hashed bundles, and a cached copy
+// keeps serving a stale UI after a rebuild. The hashed assets themselves are
+// immutable — cache those hard.
+const NO_CACHE = 'no-cache, must-revalidate';
+app.use(express.static(config.webDist, {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('index.html')) res.setHeader('Cache-Control', NO_CACHE);
+    else if (filePath.includes(`${path.sep}assets${path.sep}`)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  },
+}));
 app.get(/^\/(?!api\/).*/, (req, res) => {
+  res.setHeader('Cache-Control', NO_CACHE);
   res.sendFile(path.join(config.webDist, 'index.html'), (err) => {
     if (err) res.status(503).send('Web UI not built yet. Run: npm run web:build');
   });
