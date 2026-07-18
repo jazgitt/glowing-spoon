@@ -79,3 +79,24 @@ const VAULT_TOKEN_LIMITS = {
 };
 // If exceeded: emit Tier 2 WARNING explaining cost impact. Log excess. Let PM decide.
 ```
+
+## Mandatory Inputs (hard stop — enforced by engine/readiness.js)
+
+A session refuses to start (`WORKSPACE_NOT_READY`) until every MANDATORY item exists with real content, and the checklist is printed as the first visible step of the Specs stage:
+
+| Item | Level | Why |
+|---|---|---|
+| PRODUCT.md — description (≥40 chars) | MANDATORY | The seed everything else is drafted from |
+| PRODUCT.md — `## Tech Stack` section | MANDATORY | Without it every story invents its own stack |
+| specs/ — `## Story` headings with acceptance criteria | MANDATORY | Empty specs make agents hallucinate requirements |
+| context-vault/guardrails.md (non-stub) | MANDATORY | Always injected — empty means no rules enforced |
+| context-vault/patterns.md (non-stub) | MANDATORY | Always injected — empty means no shared conventions |
+| context-vault/stack.md (non-stub) | MANDATORY | The contract keeping every story on one stack |
+| context-vault/architecture.md | RECOMMENDED | Placement of new code |
+| context-vault/decisions.md | RECOMMENDED | Choices later stories must not contradict |
+
+`glowing-spoon workspace check --project X` prints the checklist; `glowing-spoon workspace prepare --project X` drafts failing items from PRODUCT.md (the PM's initial comments) for review — generated files are never trusted unreviewed and real content is never overwritten. Web equivalents: `GET /api/projects/:id/readiness`, `POST /api/projects/:id/prepare`.
+
+## Cross-Story Handoff (output/handoff.md)
+
+After each story's checkpoint approval the runner appends what the story built (mechanical, no LLM) to `output/handoff.md`. The dev-agent receives this plus the full content of shared contract files (`src/models|services|store|hooks|routes|…`) via `readCodebaseContext()` — story N extends story N-1 instead of reinventing it.

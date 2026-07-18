@@ -123,6 +123,96 @@ export async function readSourceFiles({ tenantId, projectId, maxChars = 120_000 
   return result;
 }
 
+// ---------------------------------------------------------------------------
+// Cross-story communication (bp-tracker-99 post-mortem): specialist agents are
+// stateless, so without an explicit handoff each story reinvents the app —
+// different language, duplicate models, drifting field names. Two mechanisms:
+//  - appendStoryHandoff: mechanical log of what each story built (no LLM).
+//  - readCodebaseContext: handoff log + full content of shared contract files
+//    (models, services, routes, …) injected into the next story's dev-agent.
+// ---------------------------------------------------------------------------
+
+export async function appendStoryHandoff({ tenantId, projectId, story, files }) {
+  const outputPath = path.resolve(getWorkspacePath(tenantId, projectId), 'output');
+  const handoffPath = path.join(outputPath, 'handoff.md');
+  let existing = '';
+  try {
+    existing = await fs.readFile(handoffPath, 'utf8');
+  } catch {
+    existing = '# Story Handoff Log\n\n' +
+      'What each completed story built. Later stories MUST extend these files — never recreate them.\n';
+  }
+  const title = story.title ?? story.description ?? 'Story';
+  const fileLines = (files ?? []).map(f => `- ${f.relativePath.split(path.sep).join('/')}`);
+  const section = `\n## ${title}\n${fileLines.join('\n') || '- (no files recorded)'}\n`;
+  await fs.mkdir(outputPath, { recursive: true });
+  await fs.writeFile(handoffPath, existing + section);
+}
+
+// Shared contract directories: full content goes to the dev-agent so new code
+// reuses these types/services instead of inventing parallel ones. Components and
+// tests are listed by path only — their existence matters, their bodies don't.
+const SHARED_DIR_RE = /^src\/(models|services|store|stores|hooks|middleware|validation|utils|config|types|routes|api)\//;
+const PER_FILE_CAP = 2_500;
+
+export async function readCodebaseContext({ tenantId, projectId, maxChars = 24_000 }) {
+  const outputPath = path.resolve(getWorkspacePath(tenantId, projectId), 'output');
+  const srcPath = path.join(outputPath, 'src');
+
+  let handoff = '';
+  try {
+    handoff = await fs.readFile(path.join(outputPath, 'handoff.md'), 'utf8');
+  } catch { /* first story — no handoff yet */ }
+
+  async function walk(dir) {
+    const results = [];
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return results;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) results.push(...await walk(full));
+      else results.push(full);
+    }
+    return results;
+  }
+
+  const shared = [];
+  const otherPaths = [];
+  for (const file of await walk(srcPath)) {
+    const rel = 'src/' + path.relative(srcPath, file).split(path.sep).join('/');
+    if (SHARED_DIR_RE.test(rel) && !/\.test\.|\.spec\./.test(rel)) {
+      let content;
+      try {
+        content = await fs.readFile(file, 'utf8');
+      } catch {
+        continue;
+      }
+      shared.push({ rel, content: content.slice(0, PER_FILE_CAP) });
+    } else {
+      otherPaths.push(rel);
+    }
+  }
+
+  if (!handoff && shared.length === 0 && otherPaths.length === 0) return '';
+
+  const sections = [];
+  if (handoff) sections.push(handoff.trim());
+  if (shared.length > 0) {
+    sections.push('## Shared modules (REUSE these — do not create parallel versions)\n\n' +
+      shared.map(f => `### ${f.rel}\n${f.content}`).join('\n\n'));
+  }
+  if (otherPaths.length > 0) {
+    sections.push('## Other existing files (paths only)\n' + otherPaths.map(p => `- ${p}`).join('\n'));
+  }
+
+  const joined = sections.join('\n\n');
+  return joined.length > maxChars ? joined.slice(0, maxChars) + '\n[TRUNCATED]' : joined;
+}
+
 // Parse agent output text into { relativePath, content }[] using filepath comments.
 // Silently drops any path that is absolute or attempts directory traversal.
 export function parseFilesFromOutput(text) {

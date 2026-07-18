@@ -62,3 +62,13 @@ export const ErrorTypes = {
 
 `notifyPM: true` + `attention: "BLOCKING"` → writes `.pending.json` AND logs `[BLOCKED]` + the command to run.
 `notifyPM: true` + `attention: "WARNING"` → logs `[WARN]` only; pipeline does not pause.
+
+## Pool & Readiness Failures (added post bp-tracker-99)
+
+| Type | Recovery | PM |
+|---|---|---|
+| `MODEL_POOL_DEGRADED` | Block at the next stage boundary; PM approves continuing on the surviving model or stops to fix `MODEL_POOL` | BLOCKING |
+| `MODEL_POOL_EXHAUSTED` | Stop session; every pool model failed or was pruned (404 = dead model id) | BLOCKING |
+| `WORKSPACE_NOT_READY` | Refuse to start; mandatory inputs (PRODUCT.md tech stack, stories, non-stub vault) missing — `workspace check` / `workspace prepare` | BLOCKING |
+
+Detection lives in `utils/claude.js` (`getPoolHealth()`: a model that 404s twice is pruned; 3 consecutive calls answered only by a sole surviving model = degraded) and `engine/readiness.js` (`checkReadiness()`). The session runner blocks on both at stage boundaries — a degraded pool or a skipped story must never end in a green "Session Complete".

@@ -11,6 +11,7 @@ import { callClaude } from '../../utils/claude.js';
 import { getSession, getPending } from '../../store/file-store.js';
 import { isPidAlive, isSessionRunning, isRunnerDead, spawnSessionRunner } from '../services/spawner.js';
 import { initSession } from '../../engine/session.js';
+import { checkReadiness, draftReadinessFiles } from '../../engine/readiness.js';
 import { getPreview, hasPrototype, startPreview, stopPreview } from '../services/preview.js';
 import { audit } from '../services/audit.js';
 
@@ -186,6 +187,37 @@ projectsRouter.delete('/:id/file', async (req, res) => {
   }
   await audit(req.user, 'file.delete', { projectId: req.params.id, file: rel });
   res.json({ ok: true });
+});
+
+// --- readiness: the mandatory-inputs checklist sessions are gated on -----------
+
+projectsRouter.get('/:id/readiness', async (req, res) => {
+  if (!assertProjectParam(req, res)) return;
+  try {
+    await fs.access(getWorkspacePath(TENANT_ID, req.params.id));
+  } catch {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+  const readiness = await checkReadiness(TENANT_ID, req.params.id);
+  res.json(readiness);
+});
+
+// Drafts every failing mandatory input from PRODUCT.md (plus any spec notes) and
+// writes ONLY missing/stub files — real content is never overwritten. The user
+// reviews the drafts on the Files page before a session can be started.
+projectsRouter.post('/:id/prepare', async (req, res) => {
+  if (!assertProjectParam(req, res)) return;
+  if (!process.env.OPENROUTER_API_KEY) {
+    return res.status(400).json({ error: 'OPENROUTER_API_KEY is not configured on the server — fill the files in manually instead.' });
+  }
+  try {
+    const result = await draftReadinessFiles({ tenantId: TENANT_ID, projectId: req.params.id });
+    await audit(req.user, 'workspace.prepare', { projectId: req.params.id, drafted: result.drafted });
+    res.json(result);
+  } catch (err) {
+    const status = err.code === 'NO_PRODUCT_DESCRIPTION' ? 400 : 502;
+    res.status(status).json({ error: err.message, code: err.code });
+  }
 });
 
 // --- starter stories from the product description -----------------------------

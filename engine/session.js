@@ -6,6 +6,7 @@ import {
   checkStopFlag, clearStopFlag,
 } from '../store/file-store.js';
 import { validateWorkspace, getWorkspacePath, hasSpecs } from '../utils/workspace.js';
+import { checkReadiness, readinessError } from './readiness.js';
 import { loadProductMd } from './context-loader.js';
 import * as out from '../utils/output.js';
 
@@ -30,6 +31,13 @@ export async function initSession({ tenantId, projectId, costBudget, dryRun = fa
         `(or generate starter stories from your product description) before starting a session.`),
       { code: 'NO_SPECS' }
     );
+  } else if (!dryRun) {
+    // Hard stop: mandatory inputs (product description + tech stack, real stories,
+    // non-stub vault) must exist before any spend. A session built on stubs produces
+    // per-story stack drift the assembler cannot reconcile (bp-tracker-99).
+    // Dry runs use canned responses that read none of these — warn-only there.
+    const readiness = await checkReadiness(tenantId, projectId);
+    if (!readiness.ready) throw readinessError(projectId, readiness.items);
   }
 
   const session = createSession({ tenantId, projectId, costBudget, dryRun, mode });
@@ -92,6 +100,18 @@ export async function recordAgentRetry(session, agentId, reason) {
   await updateSession(session);
 }
 
+// Per-story outcome bookkeeping — the end-of-session summary is built from this,
+// so a skipped story can never be reported as success.
+export async function recordStoryOutcome(session, storyIndex, story, status, reason = '') {
+  session.pipeline.storyOutcomes ??= [];
+  session.pipeline.storyOutcomes[storyIndex] = {
+    title: story.title ?? story.description ?? `Story ${storyIndex + 1}`,
+    status,
+    reason,
+  };
+  await updateSession(session);
+}
+
 export async function recordPMFeedback(session, feedback, context = '') {
   session.pmFeedback.push({ feedback, context, timestamp: Date.now() });
   await updateSession(session);
@@ -132,7 +152,13 @@ export async function archiveSession(session) {
     tokenUsage: session.tokenUsage,
     costBudget: session.costBudget,
     attentionQueue: session.attentionQueue,
-    pipeline: { storyIndex: session.pipeline.storyIndex, stage: session.pipeline.stage },
+    pipeline: {
+      storyIndex: session.pipeline.storyIndex,
+      stage: session.pipeline.stage,
+      storyOutcomes: session.pipeline.storyOutcomes ?? [],
+    },
+    assembly: session.assembly ?? null,
+    outcome: session.outcome ?? null,
     createdAt: session.createdAt,
     completedAt: Date.now(),
   };

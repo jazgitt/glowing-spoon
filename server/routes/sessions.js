@@ -72,8 +72,9 @@ sessionsRouter.post('/start', async (req, res) => {
       dryRun: Boolean(dryRun),
     });
   } catch (err) {
-    // code (e.g. NO_SPECS) lets the UI offer the right next step.
-    return res.status(400).json({ error: err.message, code: err.code });
+    // code (e.g. NO_SPECS, WORKSPACE_NOT_READY) lets the UI offer the right next
+    // step; items carries the readiness checklist so it can mark what's missing.
+    return res.status(400).json({ error: err.message, code: err.code, items: err.items });
   }
 
   const pid = await spawnSessionRunner(session);

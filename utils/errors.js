@@ -38,4 +38,25 @@ export const ErrorTypes = {
     maxRetries: 3,
     notifyPM: false,
   },
+  MODEL_POOL_DEGRADED: {
+    code: 'MODEL_POOL_DEGRADED',
+    recovery: 'block-for-pm-decision',
+    maxRetries: 0,
+    notifyPM: true,
+    attention: 'BLOCKING',
+  },
+  MODEL_POOL_EXHAUSTED: {
+    code: 'MODEL_POOL_EXHAUSTED',
+    recovery: 'stop-session-fix-pool',
+    maxRetries: 0,
+    notifyPM: true,
+    attention: 'BLOCKING',
+  },
+  WORKSPACE_NOT_READY: {
+    code: 'WORKSPACE_NOT_READY',
+    recovery: 'block-until-mandatory-inputs-exist',
+    maxRetries: 0,
+    notifyPM: true,
+    attention: 'BLOCKING',
+  },
 };

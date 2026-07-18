@@ -70,6 +70,37 @@ const ROTATABLE_STATUS = new Set([402, 404, 408, 429, 500, 502, 503, 529]);
 // Give up only after this long with every model failing (default 30 min).
 const MODEL_RETRY_MAX_MS = parseInt(process.env.MODEL_RETRY_MAX_MS, 10) || 30 * 60 * 1000;
 
+// Pool health (bp-tracker-99 post-mortem): a whole session once ran on the pool's
+// last-resort model because every other entry 429'd/404'd on every call — the
+// rotation "succeeded" 112 times while the pool was effectively one weak model.
+// Two defenses:
+//  1. Prune: a model that 404s twice in a row does not exist — drop it from the
+//     rotation for the rest of the process instead of re-asking every call.
+//  2. Degradation tracking: when this many consecutive calls were answered only
+//     after every other live model failed (i.e. one sole survivor is doing all
+//     the work), getPoolHealth() reports degraded and the session runner blocks
+//     for a PM decision instead of silently building the product on it.
+const POOL_DEGRADED_AFTER = parseInt(process.env.POOL_DEGRADED_AFTER, 10) || 3;
+const PRUNE_AFTER_404S = 2;
+
+const deadModels = new Set();
+const notFoundStreak = new Map();
+const poolHealth = { consecutiveDegraded: 0, soleSurvivor: null };
+
+export function getPoolHealth() {
+  const pool = getModelPool();
+  const live = pool.filter(m => !deadModels.has(m));
+  const collapsed = pool.length >= 2 && live.length <= 1;
+  return {
+    poolSize: pool.length,
+    liveModels: live,
+    prunedModels: [...deadModels],
+    consecutiveDegraded: poolHealth.consecutiveDegraded,
+    soleSurvivor: poolHealth.soleSurvivor,
+    degraded: pool.length >= 2 && (collapsed || poolHealth.consecutiveDegraded >= POOL_DEGRADED_AFTER),
+  };
+}
+
 let poolCursor = 0;
 
 // Per-model scoreboard for this process (one session run = one process).
@@ -97,23 +128,44 @@ async function callWithRotation(agentId, system, messages, maxTokens) {
   const candidates = pool.length ? pool : [getModel(agentId)];
   const startedAt = Date.now();
   let waitMs = 15_000;
+  let failuresThisCall = 0;
 
   for (;;) {
+    const live = candidates.filter(m => !deadModels.has(m));
+    if (live.length === 0) {
+      throw Object.assign(
+        new Error(`MODEL_POOL_EXHAUSTED: every model in [${candidates.join(', ')}] was pruned ` +
+          `(404 model not found). Fix the model ids in MODEL_POOL in .env.`),
+        { code: 'MODEL_POOL_EXHAUSTED' }
+      );
+    }
+
     let lastError;
-    for (let i = 0; i < candidates.length; i++) {
-      const model = candidates[(poolCursor + i) % candidates.length];
+    for (let i = 0; i < live.length; i++) {
+      const model = live[(poolCursor + i) % live.length];
       try {
         // The one place the model is actually known — log it here, not in the
         // agents (which used to say "Calling Claude" regardless of the model).
         out.log(agentId, `Calling ${model}…`);
         const response = await callOpenRouter(model, system, messages, maxTokens);
         // Next call starts on the model AFTER the one that answered → round-robin.
-        poolCursor = (poolCursor + i + 1) % candidates.length;
+        poolCursor = (poolCursor + i + 1) % live.length;
         const stat = statFor(model);
         stat.ok += 1;
         stat.inputTokens += response.usage?.input_tokens ?? 0;
         stat.outputTokens += response.usage?.output_tokens ?? 0;
         stat.agents.add(agentId);
+        notFoundStreak.delete(model);
+
+        // Degradation bookkeeping: this call was "degraded" if it only succeeded
+        // after every other live model failed, or the pool is down to one survivor.
+        if (pool.length >= 2 && (failuresThisCall >= live.length - 1 || live.length === 1)) {
+          poolHealth.consecutiveDegraded += 1;
+          poolHealth.soleSurvivor = model;
+        } else if (pool.length >= 2) {
+          poolHealth.consecutiveDegraded = 0;
+          poolHealth.soleSurvivor = null;
+        }
         return { response, model };
       } catch (err) {
         const stat = statFor(model);
@@ -124,17 +176,29 @@ async function callWithRotation(agentId, system, messages, maxTokens) {
         const rotatable = err.status === undefined || ROTATABLE_STATUS.has(err.status);
         if (!rotatable) throw err;
         lastError = err;
+        failuresThisCall += 1;
+        if (err.status === 404 && pool.length >= 2) {
+          const streak = (notFoundStreak.get(model) ?? 0) + 1;
+          notFoundStreak.set(model, streak);
+          if (streak >= PRUNE_AFTER_404S) {
+            deadModels.add(model);
+            out.warn(`[models] ${model} pruned from pool — model not found (404 ×${streak}); check its id in MODEL_POOL`);
+          }
+        }
         out.warn(`[models] ${model} unavailable (${err.status ?? 'network'}) — ` +
-          (i < candidates.length - 1 ? 'trying next model in pool' : 'pool cycle exhausted'));
+          (i < live.length - 1 ? 'trying next model in pool' : 'pool cycle exhausted'));
       }
     }
 
     const elapsed = Date.now() - startedAt;
     if (elapsed + waitMs > MODEL_RETRY_MAX_MS) {
-      throw new Error(`MODEL_POOL_EXHAUSTED: no model in [${candidates.join(', ')}] answered within ` +
-        `${Math.round(MODEL_RETRY_MAX_MS / 60_000)} min. Last error: ${lastError?.message ?? 'unknown'}`);
+      throw Object.assign(
+        new Error(`MODEL_POOL_EXHAUSTED: no model in [${candidates.join(', ')}] answered within ` +
+          `${Math.round(MODEL_RETRY_MAX_MS / 60_000)} min. Last error: ${lastError?.message ?? 'unknown'}`),
+        { code: 'MODEL_POOL_EXHAUSTED' }
+      );
     }
-    out.warn(`[models] all ${candidates.length} model(s) failed — waiting ${Math.round(waitMs / 1000)}s, then trying again`);
+    out.warn(`[models] all ${live.length} live model(s) failed — waiting ${Math.round(waitMs / 1000)}s, then trying again`);
     await new Promise(resolve => setTimeout(resolve, waitMs));
     waitMs = Math.min(waitMs * 2, 120_000);
   }
@@ -147,7 +211,7 @@ async function callWithRotation(agentId, system, messages, maxTokens) {
 export const AGENT_CONTEXT_NEEDS = {
   'agent-pm':           ['guardrails', 'patterns', 'architecture', 'decisions'],
   'spec-agent':         ['guardrails', 'patterns'],
-  'dev-agent':          ['guardrails', 'patterns', 'stack'],
+  'dev-agent':          ['guardrails', 'patterns', 'stack', 'architecture', 'decisions'],
   'review-agent':       ['guardrails', 'patterns', 'architecture'],
   'qa-agent':           ['guardrails', 'patterns', 'stack'],
   'docs-agent':         ['guardrails', 'patterns'],

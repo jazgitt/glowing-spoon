@@ -52,12 +52,25 @@ export function createSession({ tenantId, projectId, costBudget = 5.00, dryRun =
 
     // stage: 'plan' | 'spec' | 'checkpoint' | 'done'
     // checkpointData: set when dev-agent completes, cleared after checkpoint approved
+    // storyOutcomes[i]: { title, status: 'completed'|'skipped', reason } — feeds the
+    // honest end-of-session summary (a skipped story must never look like success).
     pipeline: {
       stories: [],
       storyIndex: 0,
       stage: 'plan',
       checkpointData: null,
+      storyOutcomes: [],
     },
+
+    // 'verified' = prototype installed + typechecked; 'failed' = assembler gave up;
+    // 'empty' = nothing to assemble; null = assembler has not run.
+    assembly: null,
+
+    // Set when the PM explicitly approves continuing on a degraded model pool.
+    poolDegradedAccepted: false,
+
+    // 'clean' | 'issues' — set at session end from storyOutcomes + assembly.
+    outcome: null,
 
     // background run metadata (pid, log path)
     runtime: {
