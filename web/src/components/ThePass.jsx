@@ -1,7 +1,8 @@
 // The Pass — the shelf where finished work lands, pinned to the top of the
 // Mission Control sidebar. One surface for everything the PM takes away:
 // the runnable prototype, the four report deliverables, the freshest files,
-// a one-click zip of the whole build, and the door to the full browser.
+// and the door to the full browser. (The code itself lives in the project's
+// workspace folder — no download needed.)
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -89,10 +90,7 @@ export default function ThePass({ projectId }) {
           )}
 
           <div className="pass-actions">
-            <a className="btn btn-glow btn-sm" href={`/api/projects/${projectId}/output/download`}>
-              ⬇ Download .zip
-            </a>
-            <Link to={`/projects/${projectId}/output`} className="btn btn-ghost btn-sm">
+            <Link to={`/projects/${projectId}/output`} className="btn btn-glow btn-sm">
               Browse all {files.length} files →
             </Link>
           </div>

@@ -46,10 +46,10 @@ export default function NewProject() {
         toast(`Couldn’t draft stories: ${err.message}`, 'err');
       }
     }
-    // Land on Mission Control — the journey rail and Expo Ticket take over
-    // from here (review specs → start a session) instead of dropping the user
-    // into the raw files editor.
-    navigate(`/projects/${projectId}`);
+    // Land on the Describe section (journey step 1) so the PM reviews and
+    // finishes the product description — the seed everything else is drafted
+    // from — before moving on to specs.
+    navigate(`/projects/${projectId}/files?tab=product`);
   }
 
   async function seedExample() {

@@ -4,7 +4,6 @@
 import { Router } from 'express';
 import fs from 'fs/promises';
 import path from 'path';
-import archiver from 'archiver'; // pinned to v7 — v8 replaced this API with classes
 import { getWorkspacePath, hasSpecs } from '../../utils/workspace.js';
 import { initWorkspace, seedWorkspace, listWorkspaces, PROJECT_ID_PATTERN } from '../../utils/workspace-init.js';
 import { callClaude } from '../../utils/claude.js';
@@ -450,31 +449,6 @@ projectsRouter.get('/:id/output/file', async (req, res) => {
   } catch {
     res.status(404).json({ error: 'File not found' });
   }
-});
-
-// Everything in output/ as one zip — cookie-authenticated like every other
-// route, so a plain <a href> in the SPA triggers the browser download.
-projectsRouter.get('/:id/output/download', async (req, res) => {
-  if (!assertProjectParam(req, res)) return;
-  const outputDir = path.join(getWorkspacePath(TENANT_ID, req.params.id), 'output');
-  try {
-    await fs.access(outputDir);
-  } catch {
-    return res.status(404).json({ error: 'This project has no output yet' });
-  }
-
-  res.setHeader('Content-Type', 'application/zip');
-  res.setHeader('Content-Disposition', `attachment; filename="${req.params.id}-output.zip"`);
-
-  const archive = archiver('zip', { zlib: { level: 6 } });
-  archive.on('error', (err) => {
-    console.error('[output/download]', err);
-    res.destroy(err);
-  });
-  archive.pipe(res);
-  archive.directory(outputDir, false);
-  await audit(req.user, 'output.download', { projectId: req.params.id });
-  await archive.finalize();
 });
 
 // --- live preview of the assembled prototype -----------------------------------

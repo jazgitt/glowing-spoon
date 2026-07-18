@@ -16,8 +16,6 @@ function TicketCta({ cta, projectId, busy, onStart, onResume, onAssemble }) {
       return <button className="btn btn-glow" disabled={busy} onClick={onResume}>{cta.label}</button>;
     case 'assemble':
       return <button className="btn btn-glow" disabled={busy} onClick={onAssemble}>{busy ? 'Starting…' : cta.label}</button>;
-    case 'download':
-      return <a className="btn btn-approve" href={`/api/projects/${projectId}/output/download`}>{cta.label}</a>;
     case 'anchor':
       return <a className="btn btn-glow" href={cta.to}>{cta.label}</a>;
     case 'open':

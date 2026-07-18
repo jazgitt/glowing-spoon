@@ -37,7 +37,7 @@ export function deriveJourney(project, session, { hasPrototype = false, previewS
   ];
 
   // next: { step (0-based), key, title, body, shortLabel, quiet, cta }
-  // cta: { type: 'link'|'start'|'resume'|'assemble'|'download', label, to? } | null
+  // cta: { type: 'link'|'start'|'resume'|'assemble'|'open'|'anchor', label, to? } | null
   // quiet = the brigade is working; nothing is needed from the PM.
   let next;
 
@@ -135,7 +135,7 @@ export function deriveJourney(project, session, { hasPrototype = false, previewS
     next = {
       step: 6, key: 'launched', quiet: false,
       title: 'Your app is live',
-      body: 'The prototype is up and serving. Open it and taste the dish — or take the whole build to go from The Pass.',
+      body: 'The prototype is up and serving. Open it and taste the dish — the full build lives in your project workspace folder.',
       shortLabel: 'App is live — open it',
       cta: previewUrl
         ? { type: 'open', href: previewUrl, label: '🔗 Open the running app' }

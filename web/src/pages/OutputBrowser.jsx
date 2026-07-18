@@ -57,11 +57,6 @@ export default function OutputBrowser() {
           <p className="sub">Everything the team has built so far. Files update as agents finish.</p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          {files.length > 0 && (
-            <a className="btn btn-glow" href={`/api/projects/${projectId}/output/download`}>
-              ⬇ Download everything (.zip)
-            </a>
-          )}
           <Link to={`/projects/${projectId}`} className="btn btn-ghost">← Mission control</Link>
         </div>
       </div>
