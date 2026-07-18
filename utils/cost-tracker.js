@@ -14,6 +14,8 @@ const COST_PER_M_TOKENS = {
   // Google (via OpenRouter)
   'google/gemini-2.0-flash-001':     { input: 0.10,  output: 0.40  },
   'google/gemini-pro-1.5':           { input: 1.25,  output: 5.00  },
+  'google/gemini-3.1-flash-lite':    { input: 0.25,  output: 1.50  }, // paid floor in the default MODEL_POOL
+  'google/gemini-2.5-flash-lite':    { input: 0.10,  output: 0.40  },
 };
 
 // Mirrors MAX_TOKENS_OUT in claude.js — used for worst-case pre-call estimate.
