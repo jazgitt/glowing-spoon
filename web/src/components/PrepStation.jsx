@@ -40,6 +40,8 @@ export default function PrepStation({ projectId, running, tab, setTab }) {
   const [preview, setPreview] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [newName, setNewName] = useState('');
+  // Draft target: { area, name } of the file being generated for review.
+  const [draftTarget, setDraftTarget] = useState(null);
   const [draftOpen, setDraftOpen] = useState(false);
   const [draftText, setDraftText] = useState('');
   const [drafting, setDrafting] = useState(false);
@@ -119,15 +121,20 @@ export default function PrepStation({ projectId, running, tab, setTab }) {
     }
   }
 
-  // Interactive spec drafting: generate a clean draft from ALL notes (PRODUCT.md
-  // + every spec file), let the user review/edit it, save only on approval.
-  async function generateDraft() {
+  // On-request generation for ANY editable file, always review-first: specs go
+  // through /draft-specs (clean stories from all notes), everything else through
+  // /draft-file (that one file from the product notes). Nothing is written until
+  // the user approves the draft.
+  async function generateDraft(target) {
+    setDraftTarget(target);
     setDraftOpen(true);
     setDrafting(true);
     setDraftError(null);
     setDraftText('');
     try {
-      const { draft } = await api.post(`/api/projects/${projectId}/draft-specs`);
+      const { draft } = target.area === 'specs'
+        ? await api.post(`/api/projects/${projectId}/draft-specs`)
+        : await api.post(`/api/projects/${projectId}/draft-file`, { area: target.area, name: target.name });
       setDraftText(draft);
     } catch (err) {
       setDraftError(err.message);
@@ -137,18 +144,27 @@ export default function PrepStation({ projectId, running, tab, setTab }) {
   }
 
   async function approveDraft() {
+    const target = draftTarget;
+    if (!target) return;
     try {
-      await api.put(`/api/projects/${projectId}/file`, { area: 'specs', name: 'stories.md', content: draftText });
-      queryClient.invalidateQueries({ queryKey: ['files', projectId, 'specs'] });
-      queryClient.invalidateQueries({ queryKey: ['file', projectId, 'specs', 'stories.md'] });
+      await api.put(`/api/projects/${projectId}/file`, { area: target.area, name: target.name, content: draftText });
+      queryClient.invalidateQueries({ queryKey: ['files', projectId, target.area] });
+      queryClient.invalidateQueries({ queryKey: ['file', projectId, target.area, target.name] });
       queryClient.invalidateQueries({ queryKey: ['project', projectId] });
       setDraftOpen(false);
-      setFileName('stories.md');
-      toast('Clean specs saved to stories.md');
+      if (target.area === area) setFileName(target.name);
+      toast(`${target.name} saved`);
     } catch (err) {
       toast(err.message, 'err');
     }
   }
+
+  // What the ✨ Generate button drafts for the file currently open in the editor.
+  const generateTarget = area === 'specs'
+    ? { area: 'specs', name: 'stories.md' }
+    : fileName ? { area, name: fileName } : null;
+  // agent-pm-prompt.md is tuning, not draftable content.
+  const canGenerate = generateTarget && (area !== 'vault' || fileName !== 'agent-pm-prompt.md');
 
   async function deleteSpec(name) {
     if (!window.confirm(`Delete ${name}? This can’t be undone.`)) return;
@@ -227,7 +243,7 @@ export default function PrepStation({ projectId, running, tab, setTab }) {
             </button>
           )}
           {area === 'specs' && (
-            <button onClick={generateDraft} style={{ color: 'var(--glow)', fontWeight: 800 }}>
+            <button onClick={() => generateDraft({ area: 'specs', name: 'stories.md' })} style={{ color: 'var(--glow)', fontWeight: 800 }}>
               ✨ Generate clean specs
             </button>
           )}
@@ -248,6 +264,17 @@ export default function PrepStation({ projectId, running, tab, setTab }) {
                     ~{tokenEstimate.toLocaleString()} / {tokenBudget.toLocaleString()} tokens
                     {tokenEstimate > tokenBudget && ' — over budget, costs extra every session'}
                   </span>
+                )}
+                {canGenerate && (
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    title={area === 'product'
+                      ? 'Rewrite your rough notes into a clean description + tech stack — you review before saving'
+                      : 'Draft this file from your product notes — you review before saving'}
+                    onClick={() => generateDraft(generateTarget)}
+                  >
+                    {area === 'product' ? '✨ Polish' : '✨ Generate'}
+                  </button>
                 )}
                 <button className="btn btn-ghost btn-sm" onClick={() => setPreview(p => !p)}>
                   {preview ? '✏️ Edit' : '👁 Preview'}
@@ -280,17 +307,17 @@ export default function PrepStation({ projectId, running, tab, setTab }) {
       </div>
 
       <Modal open={draftOpen} onClose={() => setDraftOpen(false)}>
-        <h2>✨ Clean specs draft</h2>
+        <h2>✨ {draftTarget?.area === 'product' ? 'Polished description' : `${draftTarget?.name ?? 'File'} draft`}</h2>
         {drafting ? (
-          <p className="sub">Reading your notes (product description + every spec file) and drafting clean stories…</p>
+          <p className="sub">Reading your notes (product description + every spec file) and drafting…</p>
         ) : draftError ? (
           <div className="form-error">{draftError}</div>
         ) : (
           <>
             <p className="sub">
-              Drafted from all your notes. Edit anything below, then approve — nothing is saved until you do.
-              Approving writes <strong>specs/stories.md</strong>{files.includes('stories.md') ? ' (replacing the current one)' : ''};
-              your other note files stay untouched.
+              Drafted from your notes. Edit anything below, then approve — nothing is saved until you do.
+              Approving writes <strong>{draftTarget?.name}</strong>, replacing its current content;
+              every other file stays untouched.
             </p>
             <div style={{ maxHeight: '48vh', overflow: 'auto', border: '1px solid var(--border, #333)', borderRadius: 8 }}>
               <CodeMirror
@@ -312,7 +339,7 @@ export default function PrepStation({ projectId, running, tab, setTab }) {
             </button>
           )}
           {draftError && (
-            <button className="btn btn-glow" onClick={generateDraft}>Try again</button>
+            <button className="btn btn-glow" onClick={() => generateDraft(draftTarget)}>Try again</button>
           )}
         </div>
       </Modal>

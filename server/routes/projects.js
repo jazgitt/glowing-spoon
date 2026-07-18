@@ -360,6 +360,100 @@ projectsRouter.post('/:id/draft-specs', async (req, res) => {
   }
 });
 
+// --- per-file drafting ---------------------------------------------------------
+// Generates ONE editable file on user request and returns the draft WITHOUT
+// writing anything — the user reviews it in the UI and saves via PUT /file.
+// PRODUCT.md is special: its "generation" is polishing the user's rough notes
+// (it is the seed everything else is drafted from, so it can't come from nothing).
+
+const FILE_PROMPTS = {
+  'PRODUCT.md': `You polish a rough product description into a clean PRODUCT.md.
+Keep every concrete fact and intention from the notes — do not invent features.
+Output ONLY markdown in exactly this shape, no preamble:
+
+# <Product name from the notes>
+
+<2-4 short paragraphs: what it is, who it's for, what matters most>
+
+## Tech Stack
+<the stack from the notes if named; otherwise propose one sensible modern stack in 1-2 plain lines>`,
+
+  'guardrails.md': `You write context-vault/guardrails.md: 5-10 HARD rules agents must never break
+while building THIS product (e.g. "validation lives in one shared module", "never re-implement an
+existing module", "all data access goes through the service layer"). Concrete, specific to the
+product described. Output ONLY the markdown file content starting with "# guardrails.md".`,
+
+  'patterns.md': `You write context-vault/patterns.md: the shared code conventions for THIS product —
+error-handling shape, API response shape, component structure, naming, test naming. Concrete bullets,
+no placeholders. Output ONLY the markdown file content starting with "# patterns.md".`,
+
+  'architecture.md': `You write context-vault/architecture.md: a one-page structure for THIS product —
+layers, folder layout, how frontend talks to backend, where state lives. Output ONLY the markdown
+file content starting with "# architecture.md".`,
+
+  'stack.md': `You write context-vault/stack.md: concrete stack conventions every story's code must fit —
+language, module system, file extensions, where routes/models/components live, naming. Output ONLY the
+markdown file content starting with "# stack.md".`,
+
+  'decisions.md': `You write context-vault/decisions.md: the initial decision log for THIS product.
+Record only decisions actually implied by the notes (stack choices, storage approach, auth approach),
+one dated bullet each; do not invent open questions. Output ONLY the markdown file content starting
+with "# decisions.md".`,
+};
+
+projectsRouter.post('/:id/draft-file', async (req, res) => {
+  if (!assertProjectParam(req, res)) return;
+  const projectId = req.params.id;
+  const ws = getWorkspacePath(TENANT_ID, projectId);
+  const { area, name } = req.body ?? {};
+
+  if (!process.env.OPENROUTER_API_KEY) {
+    return res.status(400).json({ error: 'OPENROUTER_API_KEY is not configured on the server.' });
+  }
+  // Draftable surface: PRODUCT.md and the vault allowlist. Specs use /draft-specs.
+  const valid = (area === 'product' && name === 'PRODUCT.md')
+    || (area === 'vault' && Object.hasOwn(FILE_PROMPTS, name) && name !== 'PRODUCT.md');
+  if (!valid) {
+    return res.status(400).json({ error: 'This file cannot be generated. Specs are drafted via draft-specs.' });
+  }
+
+  // Notes = PRODUCT.md + every spec file (same gathering as draft-specs).
+  const sections = [];
+  try {
+    const product = await fs.readFile(path.join(ws, 'PRODUCT.md'), 'utf8');
+    if (product.trim()) sections.push(`## PRODUCT.md\n${product.trim()}`);
+  } catch { /* none */ }
+  try {
+    for (const f of (await fs.readdir(path.join(ws, 'specs'))).filter(f => f.endsWith('.md'))) {
+      const content = await fs.readFile(path.join(ws, 'specs', f), 'utf8');
+      if (content.trim()) sections.push(`## specs/${f}\n${content.trim()}`);
+    }
+  } catch { /* none */ }
+  const notes = sections.join('\n\n---\n\n').slice(0, 40_000);
+  if (notes.trim().length < 40) {
+    return res.status(400).json({
+      error: 'Not enough notes to draft from. Write a few sentences in the product description first.',
+    });
+  }
+
+  try {
+    // Pre-session one-off — tenantId/projectId omitted, same as draft-specs.
+    const response = await callClaude({
+      systemPrompt: FILE_PROMPTS[name],
+      userPrompt: `The user's notes:\n\n${notes}`,
+      agentId: 'spec-agent',
+    });
+    const draft = response.content?.[0]?.text ?? '';
+    if (draft.trim().length < 60) {
+      return res.status(502).json({ error: 'The model returned an unusably short draft — try again.' });
+    }
+    await audit(req.user, 'file.draft', { projectId, area, name });
+    res.json({ draft: draft.trim() + '\n' });
+  } catch (err) {
+    res.status(502).json({ error: `Drafting failed: ${err.message}` });
+  }
+});
+
 // --- on-demand assembly --------------------------------------------------------
 // Creates an assemble-only session (skips plan/story/report) and spawns it
 // detached like any other session — progress streams over the existing SSE.

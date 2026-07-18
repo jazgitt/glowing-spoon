@@ -16,9 +16,6 @@ export default function NewProject() {
   const [projectId, setProjectId] = useState('');
   const [idTouched, setIdTouched] = useState(false);
   const [description, setDescription] = useState('');
-  const [stack, setStack] = useState('');
-  const [draftStories, setDraftStories] = useState(true);
-  const [drafting, setDrafting] = useState(false);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -27,7 +24,7 @@ export default function NewProject() {
     setBusy(true);
     setError(null);
     try {
-      await api.post('/api/projects', { projectId, name, description, stack });
+      await api.post('/api/projects', { projectId, name, description });
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       toast(`Project “${name}” created`);
     } catch (err) {
@@ -36,19 +33,8 @@ export default function NewProject() {
       return;
     }
 
-    if (draftStories && description.trim().length >= 40) {
-      setDrafting(true);
-      try {
-        await api.post(`/api/projects/${projectId}/generate-specs`);
-        toast('Starter stories drafted — review them before cooking');
-      } catch (err) {
-        // Not fatal: the project exists; the user can draft later or write specs by hand.
-        toast(`Couldn’t draft stories: ${err.message}`, 'err');
-      }
-    }
-    // Land on Mission Control. The inline Prep Station auto-opens there on
-    // whichever step needs attention (Describe/Specs); if stories were just
-    // drafted, the journey advances straight to "Start a session".
+    // Straight to Mission Control at step 1 — the Prep Station auto-opens on
+    // Describe, and every file there has a ✨ Generate option when wanted.
     navigate(`/projects/${projectId}`);
   }
 
@@ -106,30 +92,13 @@ export default function NewProject() {
             onChange={e => setDescription(e.target.value)}
           />
           <span className="hint">
-            The team will make an attempt to draft your <strong>story specs</strong> from this description —
-            you review, edit, and approve them before anything gets built, and you can change them at any time later.
+            This is the seed for everything — on the next screen you can refine it and
+            generate your <strong>story specs</strong> and other project files from it, reviewing each one.
           </span>
-        </div>
-        <div className="field">
-          <label htmlFor="stack">Tech stack (optional)</label>
-          <input
-            id="stack" value={stack} placeholder="e.g. Node.js + React, or leave blank and let the team pick"
-            onChange={e => setStack(e.target.value)}
-          />
-        </div>
-        <div className="switch-row" style={{ marginBottom: 12 }}>
-          <div>
-            <div className="sw-label">✨ Draft starter stories from this description</div>
-            <div className="sw-sub">One small AI call. You review and edit them before any session starts.</div>
-          </div>
-          <input
-            type="checkbox" checked={draftStories} style={{ width: 20, height: 20 }}
-            onChange={e => setDraftStories(e.target.checked)}
-          />
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           <button className="btn btn-glow" disabled={busy || !projectId}>
-            {drafting ? 'Drafting your stories…' : busy ? 'Creating…' : 'Create project'}
+            {busy ? 'Creating…' : 'Create project'}
           </button>
           <button type="button" className="btn btn-ghost" disabled={busy} onClick={seedExample}>
             Or try the built-in example app
