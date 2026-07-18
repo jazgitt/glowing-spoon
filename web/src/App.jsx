@@ -6,7 +6,6 @@ import Register from './pages/Register.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import NewProject from './pages/NewProject.jsx';
 import MissionControl from './pages/MissionControl.jsx';
-import FilesEditor from './pages/FilesEditor.jsx';
 import OutputBrowser from './pages/OutputBrowser.jsx';
 import SessionHistory from './pages/SessionHistory.jsx';
 import AdminUsers from './pages/AdminUsers.jsx';
@@ -54,7 +53,8 @@ export default function App() {
           <Route path="/" element={<Protected><Dashboard /></Protected>} />
           <Route path="/projects/new" element={<Protected><NewProject /></Protected>} />
           <Route path="/projects/:id" element={<Protected><MissionControl /></Protected>} />
-          <Route path="/projects/:id/files" element={<Protected><FilesEditor /></Protected>} />
+          {/* /files was folded into Mission Control's inline Prep Station — old links land on the project. */}
+          <Route path="/projects/:id/files" element={<Navigate to=".." relative="path" replace />} />
           <Route path="/projects/:id/output" element={<Protected><OutputBrowser /></Protected>} />
           <Route path="/projects/:id/history" element={<Protected><SessionHistory /></Protected>} />
           <Route path="/admin/users" element={<Protected><AdminUsers /></Protected>} />

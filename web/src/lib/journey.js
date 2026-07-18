@@ -37,7 +37,8 @@ export function deriveJourney(project, session, { hasPrototype = false, previewS
   ];
 
   // next: { step (0-based), key, title, body, shortLabel, quiet, cta }
-  // cta: { type: 'link'|'start'|'resume'|'assemble'|'open'|'anchor', label, to? } | null
+  // cta: { type: 'link'|'start'|'resume'|'assemble'|'open'|'anchor'|'prep', label, to?, tab? } | null
+  // 'prep' opens the Prep Station panel on Mission Control at the given tab.
   // quiet = the brigade is working; nothing is needed from the PM.
   let next;
 
@@ -49,7 +50,7 @@ export function deriveJourney(project, session, { hasPrototype = false, previewS
       title: 'Describe your product',
       body: 'A few sentences about what you’re building. The team drafts your story specs from this — you can change everything later.',
       shortLabel: 'Describe your product',
-      cta: { type: 'link', label: 'Write the description', to: 'files?tab=product' },
+      cta: { type: 'prep', label: 'Write the description', tab: 'product' },
     };
   } else if (!done[1]) {
     next = {
@@ -57,7 +58,7 @@ export function deriveJourney(project, session, { hasPrototype = false, previewS
       title: 'Get your story specs ready',
       body: 'Stories are what the team builds from. Write them yourself, or let the team draft a clean set from your notes — nothing is saved until you approve it.',
       shortLabel: 'Write story specs',
-      cta: { type: 'link', label: 'Get specs ready', to: 'files?tab=specs' },
+      cta: { type: 'prep', label: 'Get specs ready', tab: 'specs' },
     };
   } else if (!session) {
     next = {

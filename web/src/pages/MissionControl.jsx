@@ -1,5 +1,5 @@
 // Mission Control — the kitchen floor for one project.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client.js';
@@ -18,9 +18,10 @@ import JourneyRail from '../components/JourneyRail.jsx';
 import MissionClock from '../components/MissionClock.jsx';
 import LaunchControl from '../components/LaunchControl.jsx';
 import LaunchPad from '../components/LaunchPad.jsx';
+import PrepStation from '../components/PrepStation.jsx';
 import { deriveJourney } from '../lib/journey.js';
 
-function StartModal({ open, onClose, projectId }) {
+function StartModal({ open, onClose, projectId, onEditSpecs }) {
   const toast = useToast();
   const queryClient = useQueryClient();
   const [budget, setBudget] = useState('5.00');
@@ -81,7 +82,9 @@ function StartModal({ open, onClose, projectId }) {
             <button className="btn btn-glow btn-sm" disabled={drafting} onClick={draftStories}>
               {drafting ? 'Drafting…' : '✨ Draft stories from my description'}
             </button>
-            <Link to={`/projects/${projectId}/files`} className="btn btn-ghost btn-sm">I’ll write them myself</Link>
+            <button className="btn btn-ghost btn-sm" onClick={() => { onClose(); onEditSpecs(); }}>
+              I’ll write them myself
+            </button>
           </div>
         </div>
       )}
@@ -145,6 +148,24 @@ export default function MissionControl() {
     previewUrl: previewData?.preview?.url ?? null,
   });
 
+  // Prep station (product/specs/vault editing, inline): null = collapsed.
+  // Auto-open while the Describe or Specs journey step is what's next, so a
+  // fresh project drops the PM straight into the right editor on this page.
+  const [prepTab, setPrepTab] = useState(null);
+  const nextKey = journey?.next?.key;
+  useEffect(() => {
+    if (nextKey === 'describe') setPrepTab(t => t ?? 'product');
+    else if (nextKey === 'specs') setPrepTab(t => t ?? 'specs');
+  }, [nextKey]);
+
+  function openPrep(tab) {
+    setPrepTab(tab);
+    // Next frame — the expanded panel must exist before we can scroll to it.
+    requestAnimationFrame(() => {
+      document.getElementById('prep-station')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
   async function assemble() {
     setBusy(true);
     try {
@@ -191,7 +212,7 @@ export default function MissionControl() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <Link to={`/projects/${projectId}/files`} className="btn btn-ghost">📝 Edit specs</Link>
+          <button className="btn btn-ghost" onClick={() => openPrep('specs')}>📝 Edit specs</button>
           <Link to={`/projects/${projectId}/output`} className="btn btn-ghost">📦 Output</Link>
           <Link to={`/projects/${projectId}/history`} className="btn btn-ghost">🗂 History</Link>
           {showStop && (
@@ -210,7 +231,7 @@ export default function MissionControl() {
         </div>
       </div>
 
-      <JourneyRail journey={journey} projectId={projectId} />
+      <JourneyRail journey={journey} projectId={projectId} onPrep={openPrep} />
 
       <div className="mission-grid">
         <div>
@@ -222,8 +243,15 @@ export default function MissionControl() {
               onStart={() => setStartOpen(true)}
               onResume={() => act('resume', {}, 'Back to the stove — resuming')}
               onAssemble={assemble}
+              onPrep={openPrep}
             />
           </div>
+          <PrepStation
+            projectId={projectId}
+            running={Boolean(session?.running)}
+            tab={prepTab}
+            setTab={setPrepTab}
+          />
           {session?.running && (
             <div style={{ marginBottom: 20 }}>
               <NowPlaying session={session} />
@@ -259,7 +287,12 @@ export default function MissionControl() {
         onReject={(feedback) => act('reject', { feedback }, 'Feedback sent to the team')}
       />
 
-      <StartModal open={startOpen} onClose={() => setStartOpen(false)} projectId={projectId} />
+      <StartModal
+        open={startOpen}
+        onClose={() => setStartOpen(false)}
+        projectId={projectId}
+        onEditSpecs={() => openPrep('specs')}
+      />
     </main>
   );
 }

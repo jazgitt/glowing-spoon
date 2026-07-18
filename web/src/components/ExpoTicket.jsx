@@ -5,11 +5,13 @@
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 
-function TicketCta({ cta, projectId, busy, onStart, onResume, onAssemble }) {
+function TicketCta({ cta, projectId, busy, onStart, onResume, onAssemble, onPrep }) {
   if (!cta) return null;
   switch (cta.type) {
     case 'link':
       return <Link to={`/projects/${projectId}/${cta.to}`} className="btn btn-glow">{cta.label}</Link>;
+    case 'prep':
+      return <button className="btn btn-glow" onClick={() => onPrep(cta.tab)}>{cta.label}</button>;
     case 'start':
       return <button className="btn btn-glow" onClick={onStart}>{cta.label}</button>;
     case 'resume':
@@ -25,7 +27,7 @@ function TicketCta({ cta, projectId, busy, onStart, onResume, onAssemble }) {
   }
 }
 
-export default function ExpoTicket({ journey, projectId, busy, onStart, onResume, onAssemble }) {
+export default function ExpoTicket({ journey, projectId, busy, onStart, onResume, onAssemble, onPrep }) {
   const next = journey?.next;
   if (!next) return null;
 
@@ -65,6 +67,7 @@ export default function ExpoTicket({ journey, projectId, busy, onStart, onResume
                 onStart={onStart}
                 onResume={onResume}
                 onAssemble={onAssemble}
+                onPrep={onPrep}
               />
               {served && (
                 <Link to={`/projects/${projectId}/output`} className="btn btn-ghost">Browse all output</Link>

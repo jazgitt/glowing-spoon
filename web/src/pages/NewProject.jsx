@@ -46,10 +46,10 @@ export default function NewProject() {
         toast(`Couldn’t draft stories: ${err.message}`, 'err');
       }
     }
-    // Land on the Describe section (journey step 1) so the PM reviews and
-    // finishes the product description — the seed everything else is drafted
-    // from — before moving on to specs.
-    navigate(`/projects/${projectId}/files?tab=product`);
+    // Land on Mission Control. The inline Prep Station auto-opens there on
+    // whichever step needs attention (Describe/Specs); if stories were just
+    // drafted, the journey advances straight to "Start a session".
+    navigate(`/projects/${projectId}`);
   }
 
   async function seedExample() {

@@ -1,6 +1,9 @@
-// Edit the inputs the brigade cooks from: PRODUCT.md, specs, and the context vault.
+// Prep Station — the inputs the brigade cooks from (PRODUCT.md, specs, vault),
+// embedded directly in Mission Control so describing the product and getting
+// specs ready happen in the main flow, not on a separate page. Collapsible:
+// auto-opened by Mission Control while the Describe/Specs journey steps are
+// incomplete, one click away the rest of the time.
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import CodeMirror from '@uiw/react-codemirror';
 import { markdown } from '@codemirror/lang-markdown';
@@ -22,17 +25,16 @@ const VAULT_TOKEN_LIMITS = {
 
 const CM_THEME = {
   '&': { backgroundColor: 'transparent', fontSize: '13.5px' },
-  '.cm-gutters': { backgroundColor: 'transparent', border: 'none' },
 };
 
-export default function FilesEditor() {
-  const { id: projectId } = useParams();
-  const [params] = useSearchParams();
-  const initialArea = ['product', 'specs', 'vault'].includes(params.get('tab')) ? params.get('tab') : 'product';
+// tab: null (collapsed) | 'product' | 'specs' | 'vault'. setTab lifts the
+// open/collapse + active-area state to Mission Control so the journey rail,
+// Expo Ticket, and header button can all drive this panel.
+export default function PrepStation({ projectId, running, tab, setTab }) {
   const toast = useToast();
   const queryClient = useQueryClient();
-  const [area, setArea] = useState(initialArea);
-  const [fileName, setFileName] = useState(initialArea === 'product' ? 'PRODUCT.md' : '');
+  const area = tab ?? 'product';
+  const [fileName, setFileName] = useState('PRODUCT.md');
   const [content, setContent] = useState('');
   const [savedContent, setSavedContent] = useState('');
   const [preview, setPreview] = useState(false);
@@ -44,22 +46,17 @@ export default function FilesEditor() {
   const [draftError, setDraftError] = useState(null);
   const dirty = content !== savedContent;
 
-  const { data: projectData } = useQuery({
-    queryKey: ['project', projectId],
-    queryFn: () => api.get(`/api/projects/${projectId}`),
-  });
-  const running = Boolean(projectData?.project?.session?.running);
-
   const { data: filesData } = useQuery({
     queryKey: ['files', projectId, area],
     queryFn: () => api.get(`/api/projects/${projectId}/files?area=${area}`),
+    enabled: tab !== null,
   });
   const files = filesData?.files ?? [];
 
   const { data: fileData, isFetching } = useQuery({
     queryKey: ['file', projectId, area, fileName],
     queryFn: () => api.get(`/api/projects/${projectId}/file?area=${area}&name=${encodeURIComponent(fileName)}`),
-    enabled: Boolean(fileName),
+    enabled: tab !== null && Boolean(fileName),
     retry: false,
   });
 
@@ -69,20 +66,29 @@ export default function FilesEditor() {
     setSavedContent(text);
   }, [fileData]);
 
-  // Nothing selected yet (e.g. landed on the Specs tab) — open the first file.
+  // Area changed from outside (rail/ticket) or nothing selected — pick a file.
+  useEffect(() => {
+    if (area === 'product') setFileName('PRODUCT.md');
+    else setFileName('');
+  }, [area]);
+
   useEffect(() => {
     if (!fileName && files.length > 0) setFileName(files[0]);
   }, [fileName, files]);
 
+  function guardDirty() {
+    return !dirty || window.confirm('You have unsaved changes. Discard them?');
+  }
+
   function switchArea(next) {
-    if (dirty && !window.confirm('You have unsaved changes. Discard them?')) return;
-    setArea(next);
-    setFileName(next === 'product' ? 'PRODUCT.md' : '');
+    if (next === area) return;
+    if (!guardDirty()) return;
     setPreview(false);
+    setTab(next);
   }
 
   function switchFile(name) {
-    if (dirty && !window.confirm('You have unsaved changes. Discard them?')) return;
+    if (!guardDirty()) return;
     setFileName(name);
   }
 
@@ -90,6 +96,9 @@ export default function FilesEditor() {
     try {
       await api.put(`/api/projects/${projectId}/file`, { area, name: fileName, content });
       setSavedContent(content);
+      // The journey rail keys off hasProduct/hasSpecs — refresh so the next
+      // step lights up the moment the description or specs are saved.
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
       toast(`${fileName} saved`);
     } catch (err) {
       toast(err.message, 'err');
@@ -132,6 +141,7 @@ export default function FilesEditor() {
       await api.put(`/api/projects/${projectId}/file`, { area: 'specs', name: 'stories.md', content: draftText });
       queryClient.invalidateQueries({ queryKey: ['files', projectId, 'specs'] });
       queryClient.invalidateQueries({ queryKey: ['file', projectId, 'specs', 'stories.md'] });
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
       setDraftOpen(false);
       setFileName('stories.md');
       toast('Clean specs saved to stories.md');
@@ -145,6 +155,7 @@ export default function FilesEditor() {
     try {
       await api.del(`/api/projects/${projectId}/file`, { area: 'specs', name });
       queryClient.invalidateQueries({ queryKey: ['files', projectId, 'specs'] });
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
       if (fileName === name) setFileName('');
       toast(`${name} deleted`);
     } catch (err) {
@@ -155,14 +166,32 @@ export default function FilesEditor() {
   const tokenBudget = area === 'vault' ? VAULT_TOKEN_LIMITS[fileName] : null;
   const tokenEstimate = useMemo(() => Math.ceil(content.length / 4), [content]);
 
+  // Collapsed: one slim inviting row.
+  if (tab === null) {
+    return (
+      <div className="panel" id="prep-station" style={{ marginBottom: 20 }}>
+        <button
+          className="btn btn-ghost"
+          style={{ width: '100%', justifyContent: 'space-between', display: 'flex', alignItems: 'center' }}
+          onClick={() => setTab('product')}
+        >
+          <span>🧑‍🍳 Prep station — product description, story specs &amp; vault</span>
+          <span aria-hidden="true">▾</span>
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <main className="page">
-      <div className="page-head">
-        <div>
-          <h1>Project files</h1>
-          <p className="sub">{AREAS.find(a => a.key === area)?.hint}</p>
-        </div>
-        <Link to={`/projects/${projectId}`} className="btn btn-ghost">← Mission control</Link>
+    <div className="panel panel-pad" id="prep-station" style={{ marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 10 }}>
+        <h3 style={{ margin: 0 }}>🧑‍🍳 Prep station</h3>
+        <span className="sub" style={{ flex: 1 }}>{AREAS.find(a => a.key === area)?.hint}</span>
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={() => { if (guardDirty()) setTab(null); }}
+          title="Collapse"
+        >▴ Collapse</button>
       </div>
 
       {running && (
@@ -236,7 +265,7 @@ export default function FilesEditor() {
                   extensions={[markdown()]}
                   theme="dark"
                   style={CM_THEME['&']}
-                  height="62vh"
+                  height="46vh"
                   basicSetup={{ lineNumbers: false, foldGutter: false, highlightActiveLine: false }}
                 />
               )}
@@ -300,6 +329,6 @@ export default function FilesEditor() {
           <button className="btn btn-glow" disabled={!newName.trim()} onClick={createSpec}>Create</button>
         </div>
       </Modal>
-    </main>
+    </div>
   );
 }
