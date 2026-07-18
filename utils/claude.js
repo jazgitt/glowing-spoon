@@ -61,6 +61,17 @@ function getModelPool() {
     .filter(Boolean);
 }
 
+// Fallback tier: models tried IN ORDER only after a full failed cycle through the
+// primary pool. Keep cheap paid models here — they answer reliably but are billed,
+// so they must never join the regular round-robin (which spreads load evenly and
+// would bill a share of every call).
+function getFallbackModels() {
+  return (process.env.FALLBACK_MODELS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
 // Statuses worth rotating past: rate limit (429), provider overload (5xx/529),
 // timeouts (408), out of credits on a paid model (402 — a free model may still
 // work), and model-not-found (404 — likely a typo for one pool entry).
@@ -85,7 +96,7 @@ const PRUNE_AFTER_404S = 2;
 
 const deadModels = new Set();
 const notFoundStreak = new Map();
-const poolHealth = { consecutiveDegraded: 0, soleSurvivor: null };
+const poolHealth = { consecutiveDegraded: 0, soleSurvivor: null, fallbackServed: 0 };
 
 export function getPoolHealth() {
   const pool = getModelPool();
@@ -97,6 +108,11 @@ export function getPoolHealth() {
     prunedModels: [...deadModels],
     consecutiveDegraded: poolHealth.consecutiveDegraded,
     soleSurvivor: poolHealth.soleSurvivor,
+    // Calls served by the paid fallback tier — the quality floor working as
+    // designed, so it never counts toward `degraded` (which tracks the primary
+    // pool collapsing onto a weak free survivor that keeps answering).
+    fallbackModels: getFallbackModels().filter(m => !deadModels.has(m)),
+    fallbackServed: poolHealth.fallbackServed,
     degraded: pool.length >= 2 && (collapsed || poolHealth.consecutiveDegraded >= POOL_DEGRADED_AFTER),
   };
 }
@@ -132,10 +148,10 @@ async function callWithRotation(agentId, system, messages, maxTokens) {
 
   for (;;) {
     const live = candidates.filter(m => !deadModels.has(m));
-    if (live.length === 0) {
+    if (live.length === 0 && getFallbackModels().every(m => deadModels.has(m))) {
       throw Object.assign(
-        new Error(`MODEL_POOL_EXHAUSTED: every model in [${candidates.join(', ')}] was pruned ` +
-          `(404 model not found). Fix the model ids in MODEL_POOL in .env.`),
+        new Error(`MODEL_POOL_EXHAUSTED: every model in MODEL_POOL and FALLBACK_MODELS was pruned ` +
+          `(404 model not found). Fix the model ids in .env.`),
         { code: 'MODEL_POOL_EXHAUSTED' }
       );
     }
@@ -190,15 +206,57 @@ async function callWithRotation(agentId, system, messages, maxTokens) {
       }
     }
 
+    // Primary cycle exhausted — try the fallback tier IN ORDER before waiting.
+    // These are the paid quality floor: reliable, billed, and deliberately kept
+    // out of the round-robin so they only cost money when the free tier is down.
+    const fallbacks = getFallbackModels().filter(m => !deadModels.has(m));
+    for (const model of fallbacks) {
+      try {
+        out.log(agentId, `Calling ${model}… (fallback tier — primary pool exhausted)`);
+        const response = await callOpenRouter(model, system, messages, maxTokens);
+        const stat = statFor(model);
+        stat.ok += 1;
+        stat.inputTokens += response.usage?.input_tokens ?? 0;
+        stat.outputTokens += response.usage?.output_tokens ?? 0;
+        stat.agents.add(agentId);
+        notFoundStreak.delete(model);
+        poolHealth.fallbackServed += 1;
+        // No sole survivor in the primary pool this call — reset the streak.
+        poolHealth.consecutiveDegraded = 0;
+        poolHealth.soleSurvivor = null;
+        return { response, model };
+      } catch (err) {
+        const stat = statFor(model);
+        stat.failed += 1;
+        const reason = err.status ?? 'network';
+        stat.errors[reason] = (stat.errors[reason] ?? 0) + 1;
+        const rotatable = err.status === undefined || ROTATABLE_STATUS.has(err.status);
+        if (!rotatable) throw err;
+        lastError = err;
+        if (err.status === 404) {
+          const streak = (notFoundStreak.get(model) ?? 0) + 1;
+          notFoundStreak.set(model, streak);
+          if (streak >= PRUNE_AFTER_404S) {
+            deadModels.add(model);
+            out.warn(`[models] ${model} pruned from fallback tier — model not found (404 ×${streak}); check its id in FALLBACK_MODELS`);
+          }
+        }
+        out.warn(`[models] ${model} unavailable (${err.status ?? 'network'}) — trying next fallback`);
+      }
+    }
+
     const elapsed = Date.now() - startedAt;
     if (elapsed + waitMs > MODEL_RETRY_MAX_MS) {
+      const tiers = fallbacks.length
+        ? `[${candidates.join(', ')}] or fallback tier [${fallbacks.join(', ')}]`
+        : `[${candidates.join(', ')}]`;
       throw Object.assign(
-        new Error(`MODEL_POOL_EXHAUSTED: no model in [${candidates.join(', ')}] answered within ` +
+        new Error(`MODEL_POOL_EXHAUSTED: no model in ${tiers} answered within ` +
           `${Math.round(MODEL_RETRY_MAX_MS / 60_000)} min. Last error: ${lastError?.message ?? 'unknown'}`),
         { code: 'MODEL_POOL_EXHAUSTED' }
       );
     }
-    out.warn(`[models] all ${live.length} live model(s) failed — waiting ${Math.round(waitMs / 1000)}s, then trying again`);
+    out.warn(`[models] all ${live.length} live model(s)${fallbacks.length ? ' + fallback tier' : ''} failed — waiting ${Math.round(waitMs / 1000)}s, then trying again`);
     await new Promise(resolve => setTimeout(resolve, waitMs));
     waitMs = Math.min(waitMs * 2, 120_000);
   }

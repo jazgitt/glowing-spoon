@@ -16,6 +16,9 @@ const COST_PER_M_TOKENS = {
   'google/gemini-pro-1.5':           { input: 1.25,  output: 5.00  },
   'google/gemini-3.1-flash-lite':    { input: 0.25,  output: 1.50  }, // paid floor in the default MODEL_POOL
   'google/gemini-2.5-flash-lite':    { input: 0.10,  output: 0.40  },
+  // Other cheap paid pool members (rates from the OpenRouter catalog, 2026-07-18)
+  'deepseek/deepseek-v4-flash':      { input: 0.098, output: 0.196 },
+  'qwen/qwen3.5-flash-02-23':        { input: 0.065, output: 0.26  },
 };
 
 // Mirrors MAX_TOKENS_OUT in claude.js — used for worst-case pre-call estimate.
