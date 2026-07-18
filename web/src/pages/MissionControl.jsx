@@ -251,6 +251,7 @@ export default function MissionControl() {
             running={Boolean(session?.running)}
             tab={prepTab}
             setTab={setPrepTab}
+            describeOnly={nextKey === 'describe'}
           />
           {session?.running && (
             <div style={{ marginBottom: 20 }}>

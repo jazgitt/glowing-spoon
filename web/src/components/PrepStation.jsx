@@ -30,10 +30,12 @@ const CM_THEME = {
 // tab: null (collapsed) | 'product' | 'specs' | 'vault'. setTab lifts the
 // open/collapse + active-area state to Mission Control so the journey rail,
 // Expo Ticket, and header button can all drive this panel.
-export default function PrepStation({ projectId, running, tab, setTab }) {
+// describeOnly: journey step 1 — the PM writes their charter in PRODUCT.md and
+// nothing else. Specs and vault stay hidden until the description exists.
+export default function PrepStation({ projectId, running, tab, setTab, describeOnly = false }) {
   const toast = useToast();
   const queryClient = useQueryClient();
-  const area = tab ?? 'product';
+  const area = describeOnly ? 'product' : (tab ?? 'product');
   const [fileName, setFileName] = useState('PRODUCT.md');
   const [content, setContent] = useState('');
   const [savedContent, setSavedContent] = useState('');
@@ -191,7 +193,9 @@ export default function PrepStation({ projectId, running, tab, setTab }) {
           style={{ width: '100%', justifyContent: 'space-between', display: 'flex', alignItems: 'center' }}
           onClick={() => setTab('product')}
         >
-          <span>🧑‍🍳 Prep station — product description, story specs &amp; vault</span>
+          <span>{describeOnly
+            ? '📜 Step 1 — Describe your charter'
+            : '🧑‍🍳 Prep station — product description, story specs & vault'}</span>
           <span aria-hidden="true">▾</span>
         </button>
       </div>
@@ -201,8 +205,9 @@ export default function PrepStation({ projectId, running, tab, setTab }) {
   return (
     <div className="panel panel-pad" id="prep-station" style={{ marginBottom: 20 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 10 }}>
-        <h3 style={{ margin: 0 }}>🧑‍🍳 Prep station</h3>
-        <span className="sub" style={{ flex: 1 }}>{AREAS.find(a => a.key === area)?.hint}</span>
+        <h3 style={{ margin: 0 }}>{describeOnly ? '📜 Step 1 — Describe your charter' : '🧑‍🍳 Prep station'}</h3>
+        {!describeOnly && <span className="sub" style={{ flex: 1 }}>{AREAS.find(a => a.key === area)?.hint}</span>}
+        {describeOnly && <span style={{ flex: 1 }} />}
         <button
           className="btn btn-ghost btn-sm"
           onClick={() => { if (guardDirty()) setTab(null); }}
@@ -210,21 +215,34 @@ export default function PrepStation({ projectId, running, tab, setTab }) {
         >▴ Collapse</button>
       </div>
 
+      {describeOnly && (
+        <p className="sub" style={{ marginTop: 0, marginBottom: 12 }}>
+          This is your charter. Tell the team anything and everything about the app —
+          what it is, who it&rsquo;s for, your goals, what great looks like, what you
+          care about most. Don&rsquo;t worry about structure: <strong>✨ Polish</strong> will
+          shape it into a clean PRODUCT.md for your review. Story specs and the vault
+          unlock as soon as your description is saved.
+        </p>
+      )}
+
       {running && (
         <div className="form-error" style={{ borderColor: 'rgba(255,182,72,0.4)', background: 'var(--glow-soft)', color: 'var(--glow)' }}>
           A session is cooking right now — changes you save apply to the <strong>next</strong> session.
         </div>
       )}
 
-      <div className="tabs">
-        {AREAS.map(a => (
-          <button key={a.key} className={area === a.key ? 'on' : ''} onClick={() => switchArea(a.key)}>
-            {a.label}
-          </button>
-        ))}
-      </div>
+      {!describeOnly && (
+        <div className="tabs">
+          {AREAS.map(a => (
+            <button key={a.key} className={area === a.key ? 'on' : ''} onClick={() => switchArea(a.key)}>
+              {a.label}
+            </button>
+          ))}
+        </div>
+      )}
 
-      <div className="editor-grid">
+      <div className={describeOnly ? undefined : 'editor-grid'}>
+        {!describeOnly && (
         <div className="panel file-list">
           {files.map(f => (
             <button key={f} className={fileName === f ? 'on' : ''} onClick={() => switchFile(f)}>
@@ -253,6 +271,7 @@ export default function PrepStation({ projectId, running, tab, setTab }) {
             </p>
           )}
         </div>
+        )}
 
         <div className="panel">
           {fileName ? (

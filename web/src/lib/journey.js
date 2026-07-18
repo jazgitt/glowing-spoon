@@ -47,10 +47,10 @@ export function deriveJourney(project, session, { hasPrototype = false, previewS
   } else if (!done[0]) {
     next = {
       step: 0, key: 'describe', quiet: false,
-      title: 'Describe your product',
-      body: 'A few sentences about what you’re building. The team drafts your story specs from this — you can change everything later.',
-      shortLabel: 'Describe your product',
-      cta: { type: 'prep', label: 'Write the description', tab: 'product' },
+      title: 'Describe your charter',
+      body: 'Tell the team anything and everything about the app — what it is, who it’s for, your goals, what matters most. Everything else is drafted from this, and you can change it any time.',
+      shortLabel: 'Describe your charter',
+      cta: { type: 'prep', label: 'Write your charter', tab: 'product' },
     };
   } else if (!done[1]) {
     next = {
