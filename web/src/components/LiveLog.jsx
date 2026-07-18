@@ -13,6 +13,7 @@ function prefixColor(prefix) {
   if (key === 'teardown') return AGENTS['teardown-agent'].color;
   if (key === 'pitch-agent') return AGENTS['pitch-agent'].color;
   if (key === 'compliance') return AGENTS['compliance-agent'].color;
+  if (key === 'assembler') return AGENTS['assembler-agent'].color;
   return LOG_PREFIX_COLORS[key] ?? '#9c94c0';
 }
 
@@ -22,6 +23,7 @@ function agentIdForLine(prefix) {
   if (key === 'integration') return 'integration-agent';
   if (key === 'teardown') return 'teardown-agent';
   if (key === 'compliance') return 'compliance-agent';
+  if (key === 'assembler') return 'assembler-agent';
   return null;
 }
 

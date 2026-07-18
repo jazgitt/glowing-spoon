@@ -27,7 +27,6 @@ export async function runReviewAgent({ session, code, spec, pmFeedback = [] }) {
     ? `You are a Review Agent. Evaluate code against spec and patterns.\n\n${skillContent}`
     : 'You are a Review Agent. Evaluate code against spec and patterns.';
 
-  out.log(AGENT_ID, 'Calling Claude...');
   const response = await callClaude({
     systemPrompt,
     userPrompt,

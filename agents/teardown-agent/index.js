@@ -31,7 +31,6 @@ export async function runTeardownAgent({ session, digest, sessionCost, pmFeedbac
     ? `You are a Teardown Agent. Compare AI-built MVPs against traditional build options with honest, conservative numbers.\n\n${skillContent}`
     : 'You are a Teardown Agent. Compare AI-built MVPs against traditional build options with honest, conservative numbers.';
 
-  out.log(AGENT_ID, 'Calling Claude...');
   const response = await callClaude({
     systemPrompt,
     userPrompt,

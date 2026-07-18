@@ -5,7 +5,8 @@ import { resolveSkills, loadSkillContents } from '../../engine/skill-resolver.js
 import { saveAgentOutput, parseFilesFromOutput, readSourceFiles } from '../../engine/output-store.js';
 import { getWorkspacePath } from '../../utils/workspace.js';
 import {
-  DEPENDENCY_ALLOWLIST, validateDependencies, runCommand, parseTscErrors,
+  DEPENDENCY_ALLOWLIST, validateDependencies, findUndeclaredImports,
+  runCommand, parseTscErrors,
 } from '../../utils/build-runner.js';
 import * as out from '../../utils/output.js';
 
@@ -62,7 +63,6 @@ Hard requirements:
     `## Generated source files\n${source}${feedbackSection}${syntaxSection}\n\n` +
     `Produce the glue files now.`;
 
-  out.log(AGENT_ID, 'Calling Claude...');
   const response = await callClaude({
     systemPrompt,
     userPrompt,
@@ -134,6 +134,24 @@ Hard requirements:
         file: 'package.json', line: 0,
         error: `Disallowed dependencies: ${disallowed.join(', ')}. Use only: ${allowlist}`,
       }],
+    };
+  }
+
+  // tsc skips .js files (checkJs off), so an import missing from package.json
+  // would only crash at preview time, in front of the user. Catch it here and
+  // let the retry loop drive the fix.
+  const undeclared = await findUndeclaredImports(path.join(prototypeDir, 'src'), pkgContent);
+  if (undeclared.length > 0) {
+    out.warn(`[${AGENT_ID}] Undeclared imports: ${undeclared.map(u => u.packageName).join(', ')}`);
+    return {
+      outputText, files, gateResult: null,
+      syntaxErrors: undeclared.map(u => ({
+        file: u.file, line: 0,
+        error: `imports '${u.packageName}' but package.json does not declare it — ` +
+          (DEPENDENCY_ALLOWLIST.has(u.packageName)
+            ? `add "${u.packageName}" to dependencies`
+            : `'${u.packageName}' is not in the allowlist; rewrite the code to use an allowlisted package or no dependency`),
+      })),
     };
   }
 

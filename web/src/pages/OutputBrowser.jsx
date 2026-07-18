@@ -1,7 +1,7 @@
 // Browse everything the brigade produced: specs, source, tests, reviews, docs,
 // and the four MVP report deliverables.
 import { useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import CodeMirror from '@uiw/react-codemirror';
 import ReactMarkdown from 'react-markdown';
@@ -12,11 +12,15 @@ const REPORTS = [
   { file: 'report/compliance-checklist.md', icon: '🛡️', name: 'Compliance', sub: 'GDPR · PCI · a11y' },
   { file: 'report/pitch-one-pager.md', icon: '✨', name: 'Pitch', sub: 'One-pager & demo script' },
   { file: 'report/build-teardown.md', icon: '🧰', name: 'Teardown', sub: 'vs agency & freelancer' },
+  { file: 'report/model-performance.md', icon: '🤖', name: 'Models', sub: 'Which replied, which failed' },
 ];
 
 export default function OutputBrowser() {
   const { id: projectId } = useParams();
-  const [selected, setSelected] = useState(null);
+  // The Pass and checkpoint links land here with ?file= so the right file is
+  // already open when the page appears.
+  const [params] = useSearchParams();
+  const [selected, setSelected] = useState(params.get('file') || null);
 
   const { data: treeData } = useQuery({
     queryKey: ['output-tree', projectId],
@@ -52,7 +56,14 @@ export default function OutputBrowser() {
           <h1>Output</h1>
           <p className="sub">Everything the team has built so far. Files update as agents finish.</p>
         </div>
-        <Link to={`/projects/${projectId}`} className="btn btn-ghost">← Mission control</Link>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {files.length > 0 && (
+            <a className="btn btn-glow" href={`/api/projects/${projectId}/output/download`}>
+              ⬇ Download everything (.zip)
+            </a>
+          )}
+          <Link to={`/projects/${projectId}`} className="btn btn-ghost">← Mission control</Link>
+        </div>
       </div>
 
       {availableReports.length > 0 && (

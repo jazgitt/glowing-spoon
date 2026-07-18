@@ -9,7 +9,8 @@ import { runComplianceAgent } from '../agents/compliance-agent/index.js';
 import { runPitchAgent } from '../agents/pitch-agent/index.js';
 import { runTeardownAgent } from '../agents/teardown-agent/index.js';
 import { runAssemblerAgent } from '../agents/assembler-agent/index.js';
-import { readOutputDigest } from './output-store.js';
+import { readOutputDigest, saveAgentOutput } from './output-store.js';
+import { getModelStats } from '../utils/claude.js';
 import {
   setSessionStatus, recordAgentStart, recordAgentComplete, recordAgentRetry,
   addToAttentionQueue, syncAgentPMHistory, setPipelineCursor, archiveSession, shouldStop,
@@ -340,7 +341,53 @@ async function runMvpReport(session) {
     agentFn: (fb) => runTeardownAgent({ session, digest, sessionCost, pmFeedback: fb }),
   });
 
+  await writeModelPerformanceReport(session);
+
   out.log('session', 'MVP report written to output/report/');
+}
+
+// Model performance — pure bookkeeping from this process's call scoreboard,
+// written directly (no LLM involved: it would only be summarizing its own logs).
+async function writeModelPerformanceReport(session) {
+  const stats = getModelStats();
+  const lines = [
+    '# Model Performance',
+    '',
+    `Session \`${session.sessionId}\` — every model the round-robin touched, what it answered, and what it refused.`,
+    '',
+  ];
+
+  if (stats.length === 0) {
+    lines.push(session.dryRun
+      ? '_Dry run — no external model calls were made._'
+      : '_No model calls were recorded this session._');
+  } else {
+    lines.push('| Model | Answered | Failed | Failure reasons | Tokens in | Tokens out | Used by |');
+    lines.push('|---|---|---|---|---|---|---|');
+    for (const s of stats) {
+      const reasons = Object.entries(s.errors)
+        .map(([status, n]) => `${status}×${n}`)
+        .join(', ') || '—';
+      lines.push(`| \`${s.model}\` | ${s.ok} | ${s.failed} | ${reasons} | ${s.inputTokens.toLocaleString()} | ${s.outputTokens.toLocaleString()} | ${s.agents.join(', ')} |`);
+    }
+    const totalOk = stats.reduce((n, s) => n + s.ok, 0);
+    const totalFailed = stats.reduce((n, s) => n + s.failed, 0);
+    lines.push('');
+    lines.push(`**${totalOk}** calls answered, **${totalFailed}** attempts failed across **${stats.length}** model(s).`);
+    lines.push('');
+    lines.push('Failure reasons are HTTP statuses from OpenRouter: 429 rate limit, 5xx provider errors, 402 out of credits, `network` = connection error. Failed attempts rotate to the next model in the pool — a failure here does not mean lost work.');
+  }
+
+  try {
+    await saveAgentOutput({
+      tenantId: session.tenantId,
+      projectId: session.projectId,
+      files: [{ relativePath: 'report/model-performance.md', content: lines.join('\n') + '\n' }],
+    });
+    out.log('session', 'Model performance report written to output/report/model-performance.md');
+  } catch (err) {
+    out.warn(`Could not write model performance report: ${err.message}`);
+  }
 }
 
 // ---------------------------------------------------------------------------

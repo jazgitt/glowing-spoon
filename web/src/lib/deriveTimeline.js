@@ -50,13 +50,30 @@ export function deriveTimeline(session, pendingOverride) {
     const nodes = [];
     let sawRunning = false;
 
+    // The chain is strictly sequential, but completion COUNTS can't be
+    // attributed to stories once any story was skipped (escalation skip) —
+    // an agent's count then lags storyIndex and everything before the active
+    // agent wrongly rendered as "waiting". Position outranks counting: within
+    // the current story, everything before the active position is done.
+    let progressPos = -1;
+    if (isCurrent) {
+      if (pending?.type === 'checkpoint') {
+        progressPos = STORY_AGENTS.indexOf('dev-agent') + 1; // spec + dev done, gate open
+      } else if (pending?.type === 'escalation') {
+        progressPos = STORY_AGENTS.indexOf(pending.agent);
+      } else if (STORY_AGENTS.includes(currentStep)) {
+        progressPos = STORY_AGENTS.indexOf(currentStep);
+      }
+    }
+
     for (const agentId of STORY_AGENTS) {
       const doneForThisStory = (completions[agentId] ?? 0) >= i + 1;
+      const beforeActive = progressPos > -1 && STORY_AGENTS.indexOf(agentId) < progressPos;
       let nodeStatus = 'todo';
 
       if (isCurrent && pending?.type === 'escalation' && pending.agent === agentId) {
         nodeStatus = 'failed'; // an active escalation always outranks derived completion
-      } else if (storyDone || doneForThisStory) {
+      } else if (storyDone || doneForThisStory || beforeActive) {
         nodeStatus = 'done';
       } else if (isCurrent && currentStep === agentId && agents[agentId]?.status === 'running' && runnerActive) {
         nodeStatus = 'running';
@@ -72,7 +89,8 @@ export function deriveTimeline(session, pendingOverride) {
 
       // The PM checkpoint gate sits right after dev-agent.
       if (agentId === 'dev-agent') {
-        const devDone = storyDone || doneForThisStory;
+        const devDone = storyDone || doneForThisStory
+          || (progressPos > STORY_AGENTS.indexOf('dev-agent') && pending?.type !== 'checkpoint');
         nodes.push({
           gate: true,
           status: isCurrent && pending?.type === 'checkpoint' ? 'blocked'

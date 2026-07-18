@@ -26,6 +26,7 @@ const PREFIX = {
   'compliance-agent':   chalk.redBright('[compliance]  '),
   'pitch-agent':        chalk.magentaBright('[pitch-agent] '),
   'teardown-agent':     chalk.yellowBright('[teardown]    '),
+  'assembler-agent':    chalk.greenBright('[assembler]   '),
   'quality':            chalk.blue('[quality]     '),
   'cost':               chalk.gray('[cost]        '),
   'session':            chalk.white('[session]     '),

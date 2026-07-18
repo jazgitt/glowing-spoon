@@ -26,7 +26,6 @@ export async function runQAAgent({ session, spec, code, pmFeedback = [] }) {
     ? `You are a QA Agent. Write comprehensive tests for the provided code.\n\n${skillContent}`
     : 'You are a QA Agent. Write comprehensive tests for the provided code.';
 
-  out.log(AGENT_ID, 'Calling Claude...');
   const response = await callClaude({
     systemPrompt,
     userPrompt,

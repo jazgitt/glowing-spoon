@@ -60,13 +60,20 @@ export async function hasPrototype(tenantId, projectId) {
   }
 }
 
-function isPortFree(port) {
+function canBind(port, host) {
   return new Promise((resolve) => {
     const srv = net.createServer()
       .once('error', () => resolve(false))
       .once('listening', () => srv.close(() => resolve(true)))
-      .listen(port, '127.0.0.1');
+      .listen(port, host);
   });
+}
+
+// A port is only free if BOTH stacks can bind it. Checking 127.0.0.1 alone
+// let ports through that a stale vite (bound to ::1 only) or a wildcard
+// listener still held — the new run then died with EADDRINUSE.
+async function isPortFree(port) {
+  return (await canBind(port, '0.0.0.0')) && canBind(port, '::');
 }
 
 export async function findFreePort(start, limit = 50) {
@@ -76,13 +83,20 @@ export async function findFreePort(start, limit = 50) {
   throw Object.assign(new Error(`No free port in ${start}-${start + limit}`), { code: 'NO_FREE_PORT' });
 }
 
-function probePort(port) {
+function probeHost(port, host) {
   return new Promise((resolve) => {
-    const sock = net.connect({ port, host: '127.0.0.1' });
+    const sock = net.connect({ port, host });
     sock.once('connect', () => { sock.destroy(); resolve(true); });
     sock.once('error', () => resolve(false));
     sock.setTimeout(1_000, () => { sock.destroy(); resolve(false); });
   });
+}
+
+// Vite binds "localhost", which on Windows can mean IPv6 ::1 ONLY — an
+// IPv4-only probe then never succeeds and the watchdog kills a perfectly
+// healthy app at the timeout. Accept either loopback family.
+async function probePort(port) {
+  return (await probeHost(port, '127.0.0.1')) || probeHost(port, '::1');
 }
 
 // Fire-and-forget: flips .preview.json starting → running when the web port
@@ -129,6 +143,13 @@ export async function startPreview(tenantId, projectId) {
   const existing = await getPreview(tenantId, projectId);
   if (existing && ['installing', 'starting', 'running'].includes(existing.status)) {
     throw Object.assign(new Error('Preview is already running.'), { code: 'ALREADY_RUNNING' });
+  }
+  // A failed/stopped record can still have a live process tree behind it
+  // (e.g. the old IPv6 probe bug marked healthy runs failed without killing
+  // them) — those orphans then squat on the ports. Clear them before starting.
+  if (existing?.pid && isPidAlive(existing.pid)) {
+    killTree(existing.pid);
+    await new Promise(r => setTimeout(r, 1_500)); // let the OS release the ports
   }
 
   // Defense in depth: package.json is on disk and editable — re-validate deps

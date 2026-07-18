@@ -333,6 +333,8 @@ button { font-family: inherit; }
 .dock-head h3 { font-size: 17px; }
 .dock-head .dk-sub { color: var(--text-dim); font-size: 13px; }
 .dock-body { max-height: 260px; overflow-y: auto; margin-bottom: 14px; }
+/* Plan approval shows the whole menu — give it real room. */
+.dock-body.tall { max-height: min(56vh, 560px); }
 .dock-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .dock textarea {
   width: 100%; min-height: 76px; resize: vertical;
@@ -439,10 +441,159 @@ button { font-family: inherit; }
 .waiting-scene .ws-emoji { font-size: 40px; display: block; margin-bottom: 8px; }
 .waiting-scene .ws-line { color: var(--text-dim); font-size: 14.5px; }
 
-.orderup {
-  text-align: center; padding: 26px 20px;
-  border: 1.5px solid rgba(74, 222, 128, 0.45); border-radius: var(--radius);
-  background: rgba(74, 222, 128, 0.07);
+/* ── Expo Ticket — the signature element ──────────────────────
+   The expediter's order ticket: one card, always in the same spot,
+   always naming the single next action. Paper details (rail clip,
+   tear-off perforation) are the one physical artifact in the UI.  */
+.ticket {
+  position: relative;
+  background: linear-gradient(180deg, var(--bg-raised), var(--bg-panel) 55%);
+  border: 1.5px solid var(--line);
+  border-radius: 12px 12px var(--radius) var(--radius);
+  padding: 26px 24px 20px;
 }
-.orderup h2 { font-size: 24px; }
-.orderup p { color: var(--text-dim); margin: 6px 0 16px; }
+.ticket-live {
+  border-color: rgba(255, 182, 72, 0.55);
+  --glow-color: rgba(255, 182, 72, 0.22);
+}
+.ticket-quiet { border-style: dashed; }
+.ticket-served {
+  border-color: rgba(74, 222, 128, 0.5);
+  background:
+    linear-gradient(180deg, rgba(74, 222, 128, 0.06), transparent 60%),
+    linear-gradient(180deg, var(--bg-raised), var(--bg-panel) 55%);
+}
+/* the clip that pins the ticket to the rail */
+.ticket-clip {
+  position: absolute; top: -7px; left: 50%; transform: translateX(-50%);
+  width: 84px; height: 13px; border-radius: 7px;
+  background: linear-gradient(180deg, var(--line), var(--line-soft));
+  border: 1px solid var(--line);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+.ticket-eyebrow {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.15em;
+  color: var(--text-faint); margin-bottom: 8px;
+}
+.ticket-live .ticket-eyebrow { color: var(--glow); }
+.ticket-served .ticket-eyebrow { color: var(--approve); }
+.ticket-title { font-size: 24px; font-weight: 700; margin-bottom: 6px; }
+.ticket-sub { color: var(--text-dim); font-size: 14.5px; max-width: 62ch; }
+/* tear-off perforation between the order and its action stub */
+.ticket-tear {
+  position: relative; margin: 18px -24px 16px;
+  border-top: 2px dashed var(--line);
+}
+.ticket-tear::before, .ticket-tear::after {
+  content: ''; position: absolute; top: -8px;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--bg); border: 1.5px solid var(--line);
+}
+.ticket-tear::before { left: -8px; border-left-color: transparent; }
+.ticket-tear::after { right: -8px; border-right-color: transparent; }
+.ticket-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+
+/* ── Journey rail — the 6 steps, always visible ──────────────── */
+.journey-rail {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin: -6px 0 22px;
+}
+.jr-step { display: flex; align-items: center; gap: 6px; flex: 0 1 auto; }
+.jr-link { text-decoration: none; }
+.jr-link:hover .jr-chip { border-color: var(--glow); color: var(--text); }
+.jr-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 12.5px; font-weight: 700; white-space: nowrap;
+  padding: 5px 12px 5px 6px; border-radius: 999px;
+  border: 1px solid var(--line-soft); background: var(--bg-panel);
+  color: var(--text-dim); transition: border-color 0.15s ease;
+}
+.jr-num {
+  width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0;
+  display: grid; place-items: center;
+  font-family: var(--font-display); font-size: 11px; font-weight: 800;
+  background: var(--bg-sunken); color: var(--text-faint);
+}
+.jr-done { color: var(--text-dim); }
+.jr-done .jr-num { background: rgba(74, 222, 128, 0.15); color: var(--approve); }
+.jr-current {
+  color: var(--text); border-color: rgba(255, 182, 72, 0.55);
+  background: var(--glow-soft);
+}
+.jr-current .jr-num { background: var(--glow); color: #2b1d04; }
+.jr-todo { opacity: 0.55; }
+.jr-line { width: 14px; height: 2px; border-radius: 2px; background: var(--line-soft); }
+.jr-line.done { background: rgba(74, 222, 128, 0.4); }
+@media (max-width: 700px) { .jr-line { display: none; } }
+
+/* ── The Pass — where finished work lands ────────────────────── */
+.pass { padding: 16px 18px; }
+.pass-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
+.pass-head h3 { font-size: 15px; }
+.pass-sub { font-size: 12px; color: var(--text-faint); }
+.pass-section { padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
+.pass-section:first-of-type { padding-top: 0; }
+.pass-label {
+  font-size: 11px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--text-faint); margin-bottom: 7px;
+}
+.pass-reports { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.pass-report {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 13px; font-weight: 700; text-decoration: none;
+  padding: 7px 10px; border-radius: var(--radius-sm);
+  background: var(--bg-raised); border: 1px solid var(--line-soft);
+  color: var(--text-dim);
+}
+.pass-report:hover { border-color: var(--glow); color: var(--text); }
+.pass-file {
+  display: flex; align-items: center; gap: 10px; text-decoration: none;
+  font-family: var(--font-mono); font-size: 12px;
+  padding: 5px 8px; margin: 0 -8px; border-radius: 7px;
+  color: var(--text-dim);
+}
+.pass-file:hover { background: var(--bg-raised); color: var(--text); }
+.pass-file .pf-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pass-file .pf-when { color: var(--text-faint); font-size: 11px; flex-shrink: 0; }
+.pass-actions { display: flex; gap: 8px; flex-wrap: wrap; padding-top: 14px; }
+.pass-empty { color: var(--text-faint); font-size: 13px; padding: 10px 0 4px; }
+
+/* ── Launch pad — the final milestone, full width ─────────── */
+.launch-pad {
+  padding: 22px 24px;
+  border-color: rgba(74, 222, 128, 0.35);
+  scroll-margin-top: 80px; /* #launch-pad anchor lands below the sticky topbar */
+}
+.launch-pad .lp-head { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 14px; }
+.launch-pad .lp-emoji { font-size: 34px; line-height: 1; }
+.launch-pad h2 { font-size: 21px; margin-bottom: 2px; }
+.launch-pad .lp-sub { color: var(--text-dim); font-size: 13.5px; max-width: 64ch; }
+
+/* ── Mission clock ────────────────────────────────────────── */
+.mission-clock {
+  font-family: var(--font-mono); font-size: 13px; font-weight: 700;
+  color: var(--text-dim); letter-spacing: 0.04em;
+  padding: 2px 10px; border-radius: 999px;
+  background: var(--bg-sunken); border: 1px solid var(--line-soft);
+}
+.mission-clock .mc-label { color: var(--glow); margin-right: 5px; }
+
+/* ── Launch control (audio toggles) ───────────────────────── */
+.launch-control {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 14px;
+}
+.launch-control .lc-label {
+  font-size: 12.5px; font-weight: 800; color: var(--text-dim); margin-right: 2px;
+}
+.launch-control .lc-hint { flex-basis: 100%; font-size: 11.5px; color: var(--text-faint); }
+
+/* "Next:" hint on dashboard project cards */
+.next-hint {
+  display: flex; align-items: center; gap: 7px;
+  margin-top: 12px; padding-top: 12px;
+  border-top: 1px dashed var(--line-soft);
+  font-size: 13px; font-weight: 700; color: var(--glow);
+}
+.next-hint.quiet { color: var(--text-faint); font-weight: 600; }

@@ -72,6 +72,23 @@ const MODEL_RETRY_MAX_MS = parseInt(process.env.MODEL_RETRY_MAX_MS, 10) || 30 * 
 
 let poolCursor = 0;
 
+// Per-model scoreboard for this process (one session run = one process).
+// Feeds the mechanical model-performance report at the end of a session.
+const modelStats = new Map();
+
+function statFor(model) {
+  if (!modelStats.has(model)) {
+    modelStats.set(model, { model, ok: 0, failed: 0, inputTokens: 0, outputTokens: 0, errors: {}, agents: new Set() });
+  }
+  return modelStats.get(model);
+}
+
+export function getModelStats() {
+  return [...modelStats.values()]
+    .map(s => ({ ...s, agents: [...s.agents] }))
+    .sort((a, b) => (b.ok + b.failed) - (a.ok + a.failed));
+}
+
 // Tries each candidate model in round-robin order; on a full failed cycle,
 // waits with exponential backoff and cycles again until MODEL_RETRY_MAX_MS.
 // Returns { response, model } — the model that actually answered.
@@ -86,11 +103,23 @@ async function callWithRotation(agentId, system, messages, maxTokens) {
     for (let i = 0; i < candidates.length; i++) {
       const model = candidates[(poolCursor + i) % candidates.length];
       try {
+        // The one place the model is actually known — log it here, not in the
+        // agents (which used to say "Calling Claude" regardless of the model).
+        out.log(agentId, `Calling ${model}…`);
         const response = await callOpenRouter(model, system, messages, maxTokens);
         // Next call starts on the model AFTER the one that answered → round-robin.
         poolCursor = (poolCursor + i + 1) % candidates.length;
+        const stat = statFor(model);
+        stat.ok += 1;
+        stat.inputTokens += response.usage?.input_tokens ?? 0;
+        stat.outputTokens += response.usage?.output_tokens ?? 0;
+        stat.agents.add(agentId);
         return { response, model };
       } catch (err) {
+        const stat = statFor(model);
+        stat.failed += 1;
+        const reason = err.status ?? 'network';
+        stat.errors[reason] = (stat.errors[reason] ?? 0) + 1;
         // undefined status = network error (DNS, reset) — worth rotating/retrying.
         const rotatable = err.status === undefined || ROTATABLE_STATUS.has(err.status);
         if (!rotatable) throw err;

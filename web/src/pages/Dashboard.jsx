@@ -3,10 +3,12 @@ import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { api } from '../api/client.js';
 import { StatusPill } from '../components/ui.jsx';
+import { deriveJourney } from '../lib/journey.js';
 
 function ProjectCard({ project, index }) {
   const s = project.session;
   const needsYou = Boolean(s?.pendingType);
+  const next = deriveJourney(project, s)?.next;
   return (
     <motion.div
       initial={{ opacity: 0, y: 14 }}
@@ -29,6 +31,11 @@ function ProjectCard({ project, index }) {
           )}
           {s && <span className="cost">${(s.costUsed ?? 0).toFixed(2)} / ${s.costBudget}</span>}
         </div>
+        {next && (
+          <div className={`next-hint ${next.quiet ? 'quiet' : ''}`}>
+            {next.quiet ? '👨‍🍳' : '👉'} {next.quiet ? next.shortLabel : `Next: ${next.shortLabel}`}
+          </div>
+        )}
       </Link>
     </motion.div>
   );

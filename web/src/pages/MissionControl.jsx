@@ -12,8 +12,13 @@ import LiveLog from '../components/LiveLog.jsx';
 import CostMeter from '../components/CostMeter.jsx';
 import ConfettiManager from '../components/ConfettiManager.jsx';
 import MessageComposer from '../components/MessageComposer.jsx';
-import PreviewPanel from '../components/PreviewPanel.jsx';
-import GettingStarted from '../components/GettingStarted.jsx';
+import ThePass from '../components/ThePass.jsx';
+import ExpoTicket from '../components/ExpoTicket.jsx';
+import JourneyRail from '../components/JourneyRail.jsx';
+import MissionClock from '../components/MissionClock.jsx';
+import LaunchControl from '../components/LaunchControl.jsx';
+import LaunchPad from '../components/LaunchPad.jsx';
+import { deriveJourney } from '../lib/journey.js';
 
 function StartModal({ open, onClose, projectId }) {
   const toast = useToast();
@@ -127,6 +132,32 @@ export default function MissionControl() {
   });
   const session = sessionData?.session;
 
+  // Same query key PreviewPanel uses — react-query dedupes the fetch.
+  const { data: previewData } = useQuery({
+    queryKey: ['preview', projectId],
+    queryFn: () => api.get(`/api/projects/${projectId}/preview`),
+    refetchInterval: 4000,
+  });
+  const hasPrototype = Boolean(previewData?.hasPrototype);
+  const journey = deriveJourney(project, session ?? project?.session, {
+    hasPrototype,
+    previewStatus: previewData?.preview?.status ?? null,
+    previewUrl: previewData?.preview?.url ?? null,
+  });
+
+  async function assemble() {
+    setBusy(true);
+    try {
+      await api.post(`/api/projects/${projectId}/assemble`);
+      toast('Assembly session started — watch the pipeline');
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+    } catch (err) {
+      toast(err.message, 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function act(path, body, okMsg) {
     setBusy(true);
     try {
@@ -155,6 +186,7 @@ export default function MissionControl() {
           <h1>{project?.name ?? projectId}</h1>
           <p className="sub" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <StatusPill session={session ?? project?.session} />
+            <MissionClock session={session} />
             <span className="pid" style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{projectId}</span>
           </p>
         </div>
@@ -178,38 +210,40 @@ export default function MissionControl() {
         </div>
       </div>
 
-      {session?.status === 'complete' && (
-        <div className="orderup" style={{ marginBottom: 20 }}>
-          <h2>🛎️ Order up!</h2>
-          <p>All stories shipped and the MVP report is plated. Taste the dish from the Preview panel →</p>
-          <Link to={`/projects/${projectId}/output`} className="btn btn-approve">See what got built</Link>
-        </div>
-      )}
+      <JourneyRail journey={journey} projectId={projectId} />
 
       <div className="mission-grid">
         <div>
-          {session?.status !== 'complete' && (
+          <div style={{ marginBottom: 20 }}>
+            <ExpoTicket
+              journey={journey}
+              projectId={projectId}
+              busy={busy}
+              onStart={() => setStartOpen(true)}
+              onResume={() => act('resume', {}, 'Back to the stove — resuming')}
+              onAssemble={assemble}
+            />
+          </div>
+          {session?.running && (
             <div style={{ marginBottom: 20 }}>
               <NowPlaying session={session} />
             </div>
           )}
-          {session ? (
-            <PipelineBoard session={session} />
-          ) : (
-            <GettingStarted
-              projectId={projectId}
-              project={project}
-              onStartSession={() => setStartOpen(true)}
-            />
+          {session && <PipelineBoard session={session} />}
+          {hasPrototype && (
+            <div style={{ marginTop: 20 }}>
+              <LaunchPad
+                projectId={projectId}
+                sessionRunning={Boolean(session?.running)}
+                previewLogText={previewLogText}
+              />
+            </div>
           )}
         </div>
         <div className="mission-side">
-          <CostMeter session={session} />
-          <PreviewPanel
-            projectId={projectId}
-            sessionRunning={Boolean(session?.running)}
-            previewLogText={previewLogText}
-          />
+          <ThePass projectId={projectId} />
+          {session && <CostMeter session={session} />}
+          <LaunchControl session={session} />
           <LiveLog logText={logText} connected={connected} />
           {sessionId && session?.status !== 'complete' && (
             <MessageComposer sessionId={sessionId} disabled={!session?.running} />

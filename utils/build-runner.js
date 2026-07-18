@@ -7,11 +7,12 @@ import { spawn } from 'child_process';
 // (typosquats, malicious postinstall). Exact-name match on deps + devDeps.
 export const DEPENDENCY_ALLOWLIST = new Set([
   'react', 'react-dom', 'react-router-dom',
-  'express', 'cors', 'bcryptjs', 'jsonwebtoken',
+  'express', 'cors', 'bcryptjs', 'jsonwebtoken', 'multer',
   'pg-mem', 'sequelize', 'zod', 'uuid',
   'vite', '@vitejs/plugin-react', 'typescript', 'tsx', 'concurrently',
   '@types/express', '@types/react', '@types/react-dom', '@types/node',
   '@types/jsonwebtoken', '@types/bcryptjs', '@types/cors', '@types/uuid',
+  '@types/multer',
 ]);
 
 // Returns the list of disallowed dependency names ([] = ok).
@@ -20,6 +21,59 @@ export function validateDependencies(pkgJsonContent) {
   const pkg = JSON.parse(pkgJsonContent);
   const all = Object.keys({ ...pkg.dependencies, ...pkg.devDependencies });
   return all.filter((d) => !DEPENDENCY_ALLOWLIST.has(d));
+}
+
+// Node builtins that look like bare imports but need no dependency entry.
+const NODE_BUILTINS = new Set([
+  'assert', 'buffer', 'child_process', 'crypto', 'dns', 'events', 'fs', 'http',
+  'https', 'net', 'os', 'path', 'process', 'querystring', 'readline', 'stream',
+  'string_decoder', 'timers', 'tls', 'url', 'util', 'worker_threads', 'zlib',
+]);
+
+const IMPORT_RE = /(?:from\s+|import\s*\(\s*|require\s*\(\s*)['"]([^'".][^'"]*)['"]/g;
+
+// `tsc --noEmit` never checks .js files (checkJs is off), so a generated .js
+// route importing a package that isn't in package.json only explodes at
+// runtime, in front of the user. Scan the assembled sources for bare imports
+// that aren't declared — the assembler's retry loop turns these into fixes.
+// Returns [{ file, packageName }].
+export async function findUndeclaredImports(srcDir, pkgJsonContent) {
+  const fs = await import('fs/promises');
+  const path = await import('path');
+  const pkg = JSON.parse(pkgJsonContent);
+  const declared = new Set(Object.keys({ ...pkg.dependencies, ...pkg.devDependencies }));
+
+  const missing = [];
+  async function walk(dir) {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const abs = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name !== 'node_modules') await walk(abs);
+        continue;
+      }
+      if (!/\.(js|jsx|ts|tsx|mjs|cjs)$/.test(entry.name)) continue;
+      const content = await fs.readFile(abs, 'utf8').catch(() => '');
+      for (const match of content.matchAll(IMPORT_RE)) {
+        const spec = match[1];
+        if (spec.startsWith('.') || spec.startsWith('/') || spec.startsWith('node:')) continue;
+        // Bare specifier → package name ("@scope/pkg/sub" → "@scope/pkg").
+        const parts = spec.split('/');
+        const name = spec.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
+        if (NODE_BUILTINS.has(name) || declared.has(name)) continue;
+        if (!missing.some(m => m.packageName === name)) {
+          missing.push({ file: path.relative(srcDir, abs), packageName: name });
+        }
+      }
+    }
+  }
+  await walk(srcDir);
+  return missing;
 }
 
 // Runs a command in cwd, captures combined stdout+stderr (last 60KB — build

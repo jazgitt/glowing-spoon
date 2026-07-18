@@ -31,7 +31,6 @@ export async function runSpecAgent({ session, taskDescription, pmFeedback = [] }
     ? `You are a Spec Agent. Refine user stories and write acceptance criteria.\n\n${skillContent}`
     : 'You are a Spec Agent. Refine user stories and write acceptance criteria.';
 
-  out.log(AGENT_ID, 'Calling Claude...');
   const response = await callClaude({
     systemPrompt,
     userPrompt,

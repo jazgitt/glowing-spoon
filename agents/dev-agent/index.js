@@ -32,7 +32,6 @@ export async function runDevAgent({ session, refinedSpec, taskDescription, pmFee
     ? `You are a Dev Agent. Write clean, production-ready code.\n\n${skillContent}`
     : 'You are a Dev Agent. Write clean, production-ready code.';
 
-  out.log(AGENT_ID, 'Calling Claude...');
   const response = await callClaude({
     systemPrompt,
     userPrompt,

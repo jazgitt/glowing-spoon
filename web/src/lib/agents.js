@@ -45,6 +45,10 @@ export const AGENTS = {
     name: 'Crowbar', emoji: '🧰', role: 'Teardown analyst', color: '#fb923c',
     flavor: ['comparing you to the competition…', 'prying open the numbers…'],
   },
+  'assembler-agent': {
+    name: 'Platter', emoji: '🍽️', role: 'Assembler', color: '#a3e635',
+    flavor: ['plating the final dish…', 'wiring everything into one app…', 'checking it actually runs…'],
+  },
 };
 
 export const UNKNOWN_AGENT = {

@@ -30,7 +30,6 @@ export async function runPitchAgent({ session, digest, pmFeedback = [] }) {
     ? `You are a Pitch Agent. Turn shipped MVPs into materials a founder can sell with tomorrow.\n\n${skillContent}`
     : 'You are a Pitch Agent. Turn shipped MVPs into materials a founder can sell with tomorrow.';
 
-  out.log(AGENT_ID, 'Calling Claude...');
   const response = await callClaude({
     systemPrompt,
     userPrompt,

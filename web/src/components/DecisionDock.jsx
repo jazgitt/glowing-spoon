@@ -5,14 +5,36 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { agentInfo } from '../lib/agents.js';
 
-function PlanBody({ plan }) {
-  // The engine stores the Agent PM's plan as a JSON string inside .pending.json.
-  let parsed = plan;
-  if (typeof plan === 'string') {
-    try { parsed = JSON.parse(plan); } catch { parsed = null; }
+function parsePlan(plan) {
+  // The engine stores the Agent PM's plan as a JSON string inside .pending.json —
+  // sometimes wrapped in markdown fences or prose by the model. Try hard.
+  if (typeof plan !== 'string') return plan;
+  const candidates = [plan, plan.replace(/^```(?:json)?\s*/m, '').replace(/```\s*$/m, '')];
+  const braces = plan.slice(plan.indexOf('{'), plan.lastIndexOf('}') + 1);
+  if (braces) candidates.push(braces);
+  for (const c of candidates) {
+    try { return JSON.parse(c); } catch { /* next */ }
   }
+  return null;
+}
+
+function PlanBody({ plan }) {
+  const parsed = parsePlan(plan);
   const stories = parsed?.stories ?? [];
-  if (!stories.length) return <p style={{ color: 'var(--text-dim)' }}>The plan is ready — approve to start building.</p>;
+
+  // Never hide the plan behind a one-liner: if it doesn't parse into stories,
+  // show the full raw text so the PM can still read what they're approving.
+  if (!stories.length) {
+    return typeof plan === 'string' && plan.trim() ? (
+      <pre style={{
+        margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+        fontFamily: 'var(--font-mono)', fontSize: 12.5, color: 'var(--text-dim)',
+      }}>{plan}</pre>
+    ) : (
+      <p style={{ color: 'var(--text-dim)' }}>The plan is ready — approve to start building.</p>
+    );
+  }
+
   return (
     <div>
       {parsed?.sessionGoal && (
@@ -24,6 +46,9 @@ function PlanBody({ plan }) {
         const title = typeof story === 'string' ? story : story.title ?? story.name ?? `Story ${i + 1}`;
         const desc = typeof story === 'object' ? story.description : null;
         const complexity = typeof story === 'object' ? story.complexity : null;
+        const criteria = typeof story === 'object'
+          ? (story.acceptanceCriteria ?? story.acceptance_criteria ?? story.criteria)
+          : null;
         return (
           <div className="plan-story" key={i}>
             <span className="ps-num">{String(i + 1).padStart(2, '0')}</span>
@@ -37,6 +62,11 @@ function PlanBody({ plan }) {
                 )}
               </div>
               {desc && <div className="ps-desc">{desc}</div>}
+              {Array.isArray(criteria) && criteria.length > 0 && (
+                <ul style={{ margin: '4px 0 0 18px', fontSize: 12.5, color: 'var(--text-faint)' }}>
+                  {criteria.map((c, j) => <li key={j}>{typeof c === 'string' ? c : JSON.stringify(c)}</li>)}
+                </ul>
+              )}
             </div>
           </div>
         );
@@ -177,7 +207,7 @@ export default function DecisionDock({ session, projectId, onApprove, onReject, 
               </div>
             </div>
 
-            <div className="dock-body">
+            <div className={`dock-body ${pending.type === 'plan-approval' ? 'tall' : ''}`}>
               {pending.type === 'plan-approval' && <PlanBody plan={pending.plan} />}
               {pending.type === 'checkpoint' && <CheckpointBody pending={pending} projectId={projectId} />}
               {pending.type === 'escalation' && <EscalationBody pending={pending} />}

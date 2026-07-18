@@ -29,7 +29,6 @@ export async function runCostAgent({ session, digest, pmFeedback = [] }) {
     ? `You are a Cost Agent. Estimate realistic operating costs for small-business MVPs. Prefer cheap, boring infrastructure.\n\n${skillContent}`
     : 'You are a Cost Agent. Estimate realistic operating costs for small-business MVPs. Prefer cheap, boring infrastructure.';
 
-  out.log(AGENT_ID, 'Calling Claude...');
   const response = await callClaude({
     systemPrompt,
     userPrompt,

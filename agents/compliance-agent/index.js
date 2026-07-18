@@ -31,7 +31,6 @@ export async function runComplianceAgent({ session, digest, pmFeedback = [] }) {
     ? `You are a Compliance Agent. Flag the compliance basics small businesses skip and regret. Checklist only — never claim to provide legal advice.\n\n${skillContent}`
     : 'You are a Compliance Agent. Flag the compliance basics small businesses skip and regret. Checklist only — never claim to provide legal advice.';
 
-  out.log(AGENT_ID, 'Calling Claude...');
   const response = await callClaude({
     systemPrompt,
     userPrompt,

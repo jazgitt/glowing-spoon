@@ -15,7 +15,7 @@ const STATUS_LABELS = {
   failed:     { label: 'Failed',      color: '#e5484d' },
 };
 
-function PreviewLog({ text }) {
+function PreviewLog({ text, tall = false }) {
   const bodyRef = useRef(null);
   useEffect(() => {
     const el = bodyRef.current;
@@ -25,18 +25,19 @@ function PreviewLog({ text }) {
     <div
       ref={bodyRef}
       style={{
-        maxHeight: 180, overflow: 'auto', background: 'var(--bg-sunken)',
+        maxHeight: tall ? 320 : 180, minHeight: tall ? 120 : undefined,
+        overflow: 'auto', background: 'var(--bg-sunken)',
         borderRadius: 8, padding: '8px 10px', fontSize: 12,
         fontFamily: 'var(--font-mono, monospace)', whiteSpace: 'pre-wrap',
         wordBreak: 'break-word', marginTop: 10,
       }}
     >
-      {text || 'No output yet.'}
+      {text || 'No output yet — the launch log appears here.'}
     </div>
   );
 }
 
-export default function PreviewPanel({ projectId, sessionRunning, previewLogText }) {
+export default function PreviewPanel({ projectId, sessionRunning, previewLogText, embedded = false, expanded = false }) {
   const toast = useToast();
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
@@ -71,9 +72,9 @@ export default function PreviewPanel({ projectId, sessionRunning, previewLogText
   if (!hasPrototype && !preview && sessionRunning) return null;
 
   return (
-    <div className="panel">
+    <div className={embedded ? undefined : 'panel'}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <h3 style={{ margin: 0 }}>🍽️ Taste the dish</h3>
+        <h3 style={{ margin: 0, fontSize: embedded ? 14 : undefined }}>🍽️ Taste the dish</h3>
         {statusInfo && (
           <span style={{
             fontSize: 12, fontWeight: 700, color: statusInfo.color,
@@ -144,7 +145,7 @@ export default function PreviewPanel({ projectId, sessionRunning, previewLogText
             </p>
           )}
 
-          {(isActive || preview) && (
+          {!expanded && (isActive || preview) && (
             <button
               className="btn btn-ghost btn-sm"
               style={{ marginTop: 10 }}
@@ -153,7 +154,7 @@ export default function PreviewPanel({ projectId, sessionRunning, previewLogText
               {showLog ? 'Hide log' : 'Show log'}
             </button>
           )}
-          {showLog && <PreviewLog text={previewLogText} />}
+          {(expanded || showLog) && <PreviewLog text={previewLogText} tall={expanded} />}
         </div>
       )}
     </div>

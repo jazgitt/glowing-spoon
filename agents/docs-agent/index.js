@@ -30,7 +30,6 @@ export async function runDocsAgent({ session, spec, code, tests, pmFeedback = []
     ? `You are a Docs Agent. Write clear, accurate documentation.\n\n${skillContent}`
     : 'You are a Docs Agent. Write clear, accurate documentation.';
 
-  out.log(AGENT_ID, 'Calling Claude...');
   const response = await callClaude({
     systemPrompt,
     userPrompt,

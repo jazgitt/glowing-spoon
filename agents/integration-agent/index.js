@@ -44,7 +44,6 @@ export async function runIntegrationAgent({ session, spec, code, taskDescription
     ? `You are an Integration Agent. Scaffold reliable third-party service integrations (payments, auth, messaging, webhooks).\n\n${skillContent}`
     : 'You are an Integration Agent. Scaffold reliable third-party service integrations (payments, auth, messaging, webhooks).';
 
-  out.log(AGENT_ID, 'Calling Claude...');
   const response = await callClaude({
     systemPrompt,
     userPrompt,
